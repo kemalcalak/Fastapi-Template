@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, SessionDep
 from app.schemas.msg import Message
-from app.schemas.user import DeleteAccount, UserPublic, UserUpdate, UserUpdateMe
+from app.schemas.user import DeleteAccount, UserPublic, UserUpdateMe
 from app.services.user_service import delete_own_account_service, update_user_service
 
 router = APIRouter()
@@ -25,9 +25,8 @@ async def update_user_me(
     """
     Update own user details.
     """
-    user_update = UserUpdate(**user_in.model_dump(exclude_unset=True))
     return await update_user_service(
-        session=session, user_id=current_user.id, user_update=user_update
+        session=session, user_id=current_user.id, user_update=user_in
     )
 
 

@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
         password = quote_plus(self.POSTGRES_PASSWORD) if self.POSTGRES_PASSWORD else ""
         url_str = (
-            f"postgresql+psycopg://{self.POSTGRES_USER}:{password}"
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{password}"
             f"@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
         return PostgresDsn(url_str)

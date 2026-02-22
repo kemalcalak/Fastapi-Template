@@ -1,14 +1,14 @@
 import uuid
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import ValidationError
-from sqlmodel import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import engine
+from app.core.db import AsyncSessionLocal
 from app.core.messages.error_message import ErrorMessages
 from app.core.security import verify_token
 from app.models.user import User
@@ -19,14 +19,14 @@ from app.schemas.user import SystemRole
 reusable_oauth2 = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 
-def get_db() -> Generator[Session, None, None]:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Database session dependency."""
-    with Session(engine) as session:
+    async with AsyncSessionLocal() as session:
         yield session
 
 
-def get_current_user(
-    db: Annotated[Session, Depends(get_db)],
+async def get_current_user(
+    db: Annotated[AsyncSession, Depends(get_db)],
     token: Annotated[str, Depends(reusable_oauth2)],
 ) -> User:
     """
@@ -52,7 +52,7 @@ def get_current_user(
         )
 
     # Get user from database
-    user = get_user_by_id(db, user_id=uuid.UUID(token_data.sub))
+    user = await get_user_by_id(db, user_id=uuid.UUID(token_data.sub))
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND
@@ -87,7 +87,7 @@ def get_current_superuser(
 
 
 # Type aliases for dependency injection
-SessionDep = Annotated[Session, Depends(get_db)]
+SessionDep = Annotated[AsyncSession, Depends(get_db)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]

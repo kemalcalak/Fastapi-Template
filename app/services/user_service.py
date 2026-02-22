@@ -16,7 +16,7 @@ from app.repositories.user import (
     update_user,
 )
 from app.schemas.msg import Message
-from app.schemas.user import UserCreate, UsersPublic, UserUpdate
+from app.schemas.user import UserCreate, UsersPublic, UserUpdate, UserUpdateMe
 
 
 async def delete_own_account_service(
@@ -86,7 +86,7 @@ async def list_users_service(
 
 
 async def update_user_service(
-    session: AsyncSession, user_id: uuid.UUID, user_update: UserUpdate
+    session: AsyncSession, user_id: uuid.UUID, user_update: UserUpdate | UserUpdateMe
 ) -> User:
     """Update user information including password hashing if provided."""
     db_user = await get_user_service(session, user_id)
