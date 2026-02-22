@@ -30,8 +30,8 @@ jobs:
         env:
           PROJECT_NAME: "FastAPI Template Test"
           POSTGRES_SERVER: "localhost"
-          POSTGRES_USER: "postgres"
-          POSTGRES_PASSWORD: "changedsasadsadsadasddsathis"
-          FIRST_SUPERUSER: "admin@example.com"
-          FIRST_SUPERUSER_PASSWORD: "chanasdsadsdasaddsasdagethis"
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          FIRST_SUPERUSER: ${{ secrets.FIRST_SUPERUSER }}
+          FIRST_SUPERUSER_PASSWORD: ${{ secrets.FIRST_SUPERUSER_PASSWORD }}
         run: uv run pytest
