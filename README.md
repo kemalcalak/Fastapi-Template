@@ -10,6 +10,7 @@ A modern, production-ready FastAPI template utilizing a clean, layered (hexagona
 - **Database Migrations:** Pre-configured `Alembic` for schema version control.
 - **Authentication & Security:** JWT validation and secure password hashing using `bcrypt` and `pyjwt`.
 - **Environment Management:** Structured configuration via `pydantic-settings`.
+- **Rate Limiting:** Built-in connection limiting and throttling configurations via `slowapi`.
 - **Package Management via `uv`:** Extremely fast dependency resolution and environment management.
 - **Testing:** Comprehensive test suite setup utilizing `pytest` and `pytest-asyncio`.
 - **Code Quality:** `ruff` configuration for blazing-fast linting and formatting.
@@ -22,6 +23,7 @@ A modern, production-ready FastAPI template utilizing a clean, layered (hexagona
 - **Database Migrations:** [Alembic](https://alembic.sqlalchemy.org/)
 - **Driver:** `asyncpg` (for PostgreSQL)
 - **Validation:** [Pydantic v2](https://docs.pydantic.dev/latest/)
+- **Rate Limiter:** [Slowapi](https://slowapi.readthedocs.io/en/latest/)
 - **Linter & Formatter:** [Ruff](https://docs.astral.sh/ruff/)
 - **Testing:** `pytest` + `pytest-asyncio`
 - **Error Tracking:** Sentry SDK
