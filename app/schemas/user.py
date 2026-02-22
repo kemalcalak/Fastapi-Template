@@ -2,16 +2,24 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import EmailStr, field_validator
-from sqlmodel import Field, SQLModel
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.messages.error_message import ErrorMessages
-from app.models.user import UserBase
 
 
 class SystemRole(str, Enum):
     ADMIN = "admin"
     USER = "user"
+
+
+# Shared properties
+class UserBase(BaseModel):
+    email: EmailStr = Field(max_length=255)
+    is_active: bool = True
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
+    title: str | None = Field(default=None, max_length=100)
+    role: str = Field(default="user", max_length=20)
 
 
 # Properties to receive via API on creation
@@ -27,7 +35,7 @@ class UserCreate(UserBase):
         return v
 
 
-class UserRegister(SQLModel):
+class UserRegister(BaseModel):
     email: EmailStr = Field(max_length=255)
     password: str = Field(min_length=8, max_length=40)
     first_name: str | None = Field(default=None, max_length=100)
@@ -49,19 +57,19 @@ class UserUpdate(UserBase):
         return v
 
 
-class UserUpdateMe(SQLModel):
+class UserUpdateMe(BaseModel):
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     email: EmailStr | None = Field(default=None, max_length=255)
     title: str | None = Field(default=None, max_length=100)
 
 
-class UpdatePassword(SQLModel):
+class UpdatePassword(BaseModel):
     current_password: str = Field(min_length=8, max_length=40)
     new_password: str = Field(min_length=8, max_length=40)
 
 
-class DeleteAccount(SQLModel):
+class DeleteAccount(BaseModel):
     password: str = Field(min_length=8, max_length=40)
 
 
@@ -73,11 +81,11 @@ class UserPublic(UserBase):
     updated_at: datetime
 
 
-class UsersPublic(SQLModel):
+class UsersPublic(BaseModel):
     data: list[UserPublic]
     count: int
 
 
-class NewPassword(SQLModel):
+class NewPassword(BaseModel):
     token: str
     new_password: str = Field(min_length=8, max_length=40)

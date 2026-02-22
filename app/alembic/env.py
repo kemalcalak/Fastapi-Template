@@ -15,7 +15,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from sqlmodel import SQLModel
+from app.core.db import Base
 
 # Import all models here so Alembic can detect them
 from app.models.user import User  # noqa
@@ -23,7 +23,7 @@ from app.models.user_activity import UserActivity  # noqa
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-target_metadata = SQLModel.metadata
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

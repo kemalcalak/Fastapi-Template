@@ -2,32 +2,30 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import EmailStr
+from sqlalchemy import String, Boolean, DateTime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from app.models.user_activity import UserActivity
-from sqlmodel import Field, Relationship, SQLModel
 
+from app.core.db import Base
 from app.utils import utc_now
 
 
-# Shared properties
-class UserBase(SQLModel):
-    email: EmailStr = Field(unique=True, index=True, max_length=255)
-    is_active: bool = True
-    first_name: str | None = Field(default=None, max_length=100)
-    last_name: str | None = Field(default=None, max_length=100)
-    title: str | None = Field(default=None, max_length=100)
-    role: str = Field(default="user", max_length=20)
+class User(Base):
+    __tablename__ = "user"
 
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    first_name: Mapped[str | None] = mapped_column(String(100), default=None)
+    last_name: Mapped[str | None] = mapped_column(String(100), default=None)
+    title: Mapped[str | None] = mapped_column(String(100), default=None)
+    role: Mapped[str] = mapped_column(String(20), default="user")
+    hashed_password: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
-# Database model, database table inferred from class name
-class User(UserBase, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    hashed_password: str
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
-    is_deleted: bool = Field(default=False, index=True)
-    deleted_at: datetime | None = Field(default=None)
-
-    activities: list["UserActivity"] = Relationship(back_populates="user")
+    activities: Mapped[list["UserActivity"]] = relationship("UserActivity", back_populates="user")

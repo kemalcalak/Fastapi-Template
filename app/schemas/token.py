@@ -1,12 +1,12 @@
-from sqlmodel import SQLModel
+from pydantic import BaseModel
 
 
 # JSON payload containing access token
-class Token(SQLModel):
+class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
 
 # Contents of JWT token
-class TokenPayload(SQLModel):
+class TokenPayload(BaseModel):
     sub: str | None = None

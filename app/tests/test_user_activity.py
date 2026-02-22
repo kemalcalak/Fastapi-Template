@@ -68,7 +68,7 @@ async def test_create_user_activity(db_session: AsyncSession):
     assert activity.ip_address == "127.0.0.1"
 
     # 5. Make sure we can retrieve it from the database directly using SQLAlchemy (ORM)
-    from sqlmodel import select
+    from sqlalchemy import select
     result = await db_session.execute(select(UserActivity).where(UserActivity.id == activity.id))
     db_record = result.scalars().first()
 

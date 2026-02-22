@@ -6,7 +6,7 @@ A modern, production-ready FastAPI template utilizing a clean, layered (hexagona
 
 - **Layered Architecture:** Strict separation between API logic, services, repositories, and data models.
 - **Dependency Injection:** Fully utilizes FastAPI's dependency injection system.
-- **Asynchronous Database:** `SQLModel` with `asyncpg` for non-blocking database operations.
+- **Asynchronous Database:** `SQLAlchemy` with `asyncpg` for non-blocking database operations.
 - **Database Migrations:** Pre-configured `Alembic` for schema version control.
 - **Authentication & Security:** JWT validation and secure password hashing using `bcrypt` and `pyjwt`.
 - **Environment Management:** Structured configuration via `pydantic-settings`.
@@ -18,7 +18,7 @@ A modern, production-ready FastAPI template utilizing a clean, layered (hexagona
 ## Tech Stack
 
 - **Framework:** [FastAPI](https://fastapi.tiangolo.com/)
-- **ORM:** [SQLModel](https://sqlmodel.tiangolo.com/)
+- **ORM:** [SQLAlchemy](https://www.sqlalchemy.org/)
 - **Database Migrations:** [Alembic](https://alembic.sqlalchemy.org/)
 - **Driver:** `asyncpg` (for PostgreSQL)
 - **Validation:** [Pydantic v2](https://docs.pydantic.dev/latest/)
@@ -34,7 +34,7 @@ A modern, production-ready FastAPI template utilizing a clean, layered (hexagona
 │   ├── alembic/          # Database migration configurations
 │   ├── api/              # API Layer: FastAPI routers and route handlers
 │   ├── core/             # Core configurations, security, exceptions, logging
-│   ├── models/           # Domain Layer: SQLModel definitions
+│   ├── models/           # Domain Layer: SQLAlchemy definitions
 │   ├── repositories/     # Data Layer: Database operations and queries
 │   ├── schemas/          # API Layer: Pydantic request/response schemas
 │   ├── services/         # Business Logic Layer: Core use cases and orchestration
