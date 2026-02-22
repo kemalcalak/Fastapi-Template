@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.api.deps import CurrentUser, SessionDep
 from app.schemas.msg import Message
@@ -20,23 +20,23 @@ async def read_user_me(current_user: CurrentUser) -> Any:
 
 @router.patch("/me", response_model=UserPublic)
 async def update_user_me(
-    session: SessionDep, current_user: CurrentUser, user_in: UserUpdateMe
+    request: Request, session: SessionDep, current_user: CurrentUser, user_in: UserUpdateMe
 ) -> Any:
     """
     Update own user details.
     """
     return await update_user_service(
-        session=session, user_id=current_user.id, user_update=user_in
+        request=request, session=session, current_user=current_user, user_id=current_user.id, user_update=user_in
     )
 
 
 @router.delete("/me", response_model=Message)
 async def delete_user_me(
-    session: SessionDep, current_user: CurrentUser, body: DeleteAccount
+    request: Request, session: SessionDep, current_user: CurrentUser, body: DeleteAccount
 ) -> Any:
     """
     Delete own user profile with password confirmation.
     """
     return await delete_own_account_service(
-        session=session, current_user=current_user, password=body.password
+        request=request, session=session, current_user=current_user, password=body.password
     )
