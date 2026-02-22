@@ -57,16 +57,13 @@ A modern, production-ready FastAPI template utilizing a clean, layered (hexagona
 - Docker & Docker Compose (for local database)
 - `uv` package manager (recommended)
 
-### 1. Clone & Bootstrap
+### 1. Clone the Repository
 
-Clone the repository and install the dependencies. This project uses [uv](https://docs.astral.sh/uv/) for incredibly fast dependency management:
+Clone the repository to your local machine:
 
 ```bash
-# Install uv if you haven't already
-# pip install uv
-
-# Install project dependencies
-uv sync
+git clone https://github.com/kemalcalak/fastapi-template.git
+cd fastapi-template
 ```
 
 ### 2. Environment Variables
@@ -76,45 +73,33 @@ Create a `.env` file from the provided template:
 ```bash
 cp .env.example .env
 ```
-Ensure you set the correct database credentials inside `.env` (e.g., `DATABASE_URL`).
+Ensure you have set the required environment variables.
 
-### 3. Start Local Database
+### 3. Start the Application via Docker
 
-This project provides a `docker-compose.yaml` to spin up a local PostgreSQL instance:
+This project provides a `docker-compose.yaml` to spin up the entire stack, including the backend service and a local PostgreSQL instance:
 
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
+
+The API will be available at `http://localhost:8000`. You can test the endpoints via the Swagger UI available at `http://localhost:8000/docs`.
 
 ### 4. Run Migrations
 
-Generate and apply the tables using Alembic:
+To generate and apply the database tables using Alembic, run the migration command inside the backend container:
 
 ```bash
 # Apply existing migrations
-uv run alembic upgrade head
+docker-compose exec backend uv run alembic upgrade head
 ```
 
 If you modify models in `app/models/` and need to generate a new migration script:
 
 ```bash
-uv run alembic revision --autogenerate -m "description_of_changes"
-uv run alembic upgrade head
+docker-compose exec backend uv run alembic revision --autogenerate -m "description_of_changes"
+docker-compose exec backend uv run alembic upgrade head
 ```
-
-### 5. Start the Application
-
-Run the FastAPI development server:
-
-```bash
-# Using fastapi CLI standard
-uv run fastapi dev app/main.py
-
-# Alternatively via python with uvicorn (if installed explicitly)
-uv run python -m uvicorn app.main:app --reload
-```
-
-The API will be available at `http://localhost:8000`. You can test the endpoints via the Swagger UI available at `http://localhost:8000/docs`.
 
 ## Testing
 
