@@ -2,13 +2,10 @@ import uuid
 from datetime import datetime, timedelta
 
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 
 from app.core.config import settings
 from app.utils import utc_now
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +116,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         ``True`` if the password matches, ``False`` otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        if isinstance(hashed_password, str):
+            hashed_password_bytes = hashed_password.encode('utf-8')
+        else:
+            hashed_password_bytes = hashed_password
+            
+        return bcrypt.checkpw(
+            plain_password.encode('utf-8'),
+            hashed_password_bytes
+        )
+    except ValueError:
+        return False
 
 
 def get_password_hash(password: str) -> str:
@@ -132,7 +140,8 @@ def get_password_hash(password: str) -> str:
     Returns:
         bcrypt hash string
     """
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt(prefix=b"2b")
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
 # ---------------------------------------------------------------------------
