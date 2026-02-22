@@ -14,6 +14,7 @@ dependencies = [
     "pyjwt>=2.11.0",
     "python-multipart>=0.0.22",
     "sentry-sdk>=2.53.0",
+    "slowapi>=0.1.9",
     "sqlalchemy>=2.0.0",
 ]
 

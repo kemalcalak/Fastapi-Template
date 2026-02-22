@@ -4,14 +4,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
 
 from app.api.exception_handlers import (
     general_exception_handler,
     http_exception_handler,
     validation_exception_handler,
+    rate_limit_exception_handler,
 )
 from app.api.main import api_router
 from app.core.config import settings
+from app.core.rate_limit import limiter
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -32,6 +35,8 @@ app = FastAPI(
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exception_handler)
+app.state.limiter = limiter
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:
