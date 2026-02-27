@@ -14,3 +14,4 @@ class ErrorMessages:
     EMAIL_ALREADY_EXISTS = "error.user.email_exists"
     INVALID_PASSWORD = "error.user.invalid_password"
     USER_INACTIVE = "error.user.user_inactive"
+    REFRESH_TOKEN_MISSING = "error.auth.refresh_token_missing"

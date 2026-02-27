@@ -1,64 +1,57 @@
-# FastAPI Layered Architecture Template
+# ⚡ FastAPI Layered Architecture Template
 
 A modern, production-ready FastAPI template utilizing a clean, layered (hexagonal-style) architecture. This template is designed for building robust and scalable backend services with clear separation of concerns, easy testing, and high maintainability.
 
-## Features
+## 💡 Why This Template?
 
-- **Layered Architecture:** Strict separation between API logic, services, repositories, and data models.
-- **Dependency Injection:** Fully utilizes FastAPI's dependency injection system.
-- **Asynchronous Database:** `SQLAlchemy` with `asyncpg` for non-blocking database operations.
-- **Database Migrations:** Pre-configured `Alembic` for schema version control.
-- **Authentication & Security:** JWT validation and secure password hashing using `bcrypt` and `pyjwt`.
-- **Environment Management:** Structured configuration via `pydantic-settings`.
-- **Rate Limiting:** Built-in connection limiting and throttling configurations via `slowapi`.
-- **Package Management via `uv`:** Extremely fast dependency resolution and environment management.
-- **Testing:** Comprehensive test suite setup utilizing `pytest` and `pytest-asyncio`.
-- **Code Quality:** `ruff` configuration for blazing-fast linting and formatting.
-- **Docker Ready:** Includes `Dockerfile` and `docker-compose.yaml` for containerized deployments and local Postgres dev environment.
+While FastAPI is incredibly fast and flexible, it doesn't enforce a specific project structure. As projects grow, they often turn into a tangled mess of tightly coupled route handlers, business logic, and database calls. This template provides **Enterprise-Grade Readiness** from minute zero.
 
-## Tech Stack
+- **Pre-Configured Tooling:** `uv`, `pytest`, `ruff`, and `alembic` are pre-integrated. No wrestling with environment setups.
+- **Scalable Architecture:** Extends beyond simple MVC. It isolates API routing, business logic (Services), and database interactions (Repositories) making the app highly testable and maintainable.
+- **Production-Ready Security:** JWT authentication, HttpOnly cookies for refresh tokens, token blacklisting, password hashing, and rate limiting are baked in.
+- **Docker First:** A `docker-compose.yaml` is ready to spin up your backend and PostgreSQL database instantly.
 
-- **Framework:** [FastAPI](https://fastapi.tiangolo.com/)
-- **ORM:** [SQLAlchemy](https://www.sqlalchemy.org/)
-- **Database Migrations:** [Alembic](https://alembic.sqlalchemy.org/)
-- **Driver:** `asyncpg` (for PostgreSQL)
-- **Validation:** [Pydantic v2](https://docs.pydantic.dev/latest/)
-- **Rate Limiter:** [Slowapi](https://slowapi.readthedocs.io/en/latest/)
-- **Linter & Formatter:** [Ruff](https://docs.astral.sh/ruff/)
-- **Testing:** `pytest` + `pytest-asyncio`
-- **Error Tracking:** Sentry SDK
-- **ASGI Server:** [Uvicorn](https://www.uvicorn.org/)
-- **Package Manager:** [uv](https://docs.astral.sh/uv/)
+---
 
-## Project Structure
+## 🔗 Frontend Compatibility
 
-```bash
-├── app/
-│   ├── alembic/          # Database migration configurations
-│   ├── api/              # API Layer: FastAPI routers and route handlers
-│   ├── core/             # Core configurations, security, exceptions, logging
-│   ├── models/           # Domain Layer: SQLAlchemy definitions
-│   ├── repositories/     # Data Layer: Database operations and queries
-│   ├── schemas/          # API Layer: Pydantic request/response schemas
-│   ├── services/         # Business Logic Layer: Core use cases and orchestration
-│   ├── tests/            # Test suite (integration and unit tests)
-│   ├── utils/            # Helper functions and shared utilities
-│   └── main.py           # Application entry point
-├── alembic.ini           # Alembic settings
-├── docker-compose.yaml   # Docker compose configuration (e.g., PostgreSQL DB)
-├── Dockerfile            # Dockerfile for backend container
-├── pyproject.toml        # Project dependencies and tool configurations
-├── pytest.ini            # Pytest settings
-└── uv.lock               # Dependency lock file
-```
+This backend template is designed to seamlessly integrate with the companion **React + TypeScript + Vite Enterprise Template**.
+You can find the frontend template here: [kemalcalak/React-Template](https://github.com/kemalcalak/React-Template).
 
-## Setup & Local Development
+---
+
+## 🚀 Features & Tech Stack
+
+This template integrates the best-in-class Python ecosystem tools to provide a seamless developer experience:
+
+- **Framework:** [FastAPI](https://fastapi.tiangolo.com/) for building APIs with Python 3.12+ based on standard Python type hints.
+- **Architecture:** Strict Layered Architecture separating routers, services, repositories, and models, fully utilizing FastAPI's dependency injection.
+- **Database & ORM:** [SQLAlchemy](https://www.sqlalchemy.org/) with `asyncpg` for non-blocking operations, and [Alembic](https://alembic.sqlalchemy.org/) for schema migrations.
+- **Validation & Config:** [Pydantic v2](https://docs.pydantic.dev/latest/) and `pydantic-settings` for robust data validation and environment management.
+- **Security & Auth:** Built-in JWT validation, `bcrypt` password hashing, and [Slowapi](https://slowapi.readthedocs.io/en/latest/) for rate limiting.
+- **Tooling:** [uv](https://docs.astral.sh/uv/) for blazing-fast package management, and [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
+- **Testing:** Comprehensive async testing setup with `pytest` and `pytest-asyncio`.
+
+---
+
+## ✅ CI/CD Ready
+
+The repository structure supports standard Continuous Integration pipelines out-of-the-box. Ensure you configure your CI (GitHub Actions, GitLab CI, etc.) to run:
+
+1.  **Dependency Install:** `uv sync`
+2.  **Linting:** `uv run ruff check .`
+3.  **Formatting Check:** `uv run ruff format --check .`
+4.  **Unit & Integration Tests:** `uv run pytest`
+
+---
+
+## 📦 Setup & Local Development
 
 ### Prerequisites
 
 - Python >= 3.12
 - Docker & Docker Compose (for local database)
-- `uv` package manager (recommended)
+- [`uv`](https://docs.astral.sh/uv/) package manager (recommended)
 
 ### 1. Clone the Repository
 
@@ -76,7 +69,20 @@ Create a `.env` file from the provided template:
 ```bash
 cp .env.example .env
 ```
-Ensure you have set the required environment variables.
+
+Your `.env` file should look like this, filled with your actual configuration:
+
+```env
+PROJECT_NAME="FastAPI Template"
+SECRET_KEY="changethis"
+ENVIRONMENT="local"
+POSTGRES_SERVER="localhost"
+POSTGRES_USER="postgres"
+POSTGRES_PASSWORD="changethis"
+POSTGRES_DB="app"
+FIRST_SUPERUSER="admin@example.com"
+FIRST_SUPERUSER_PASSWORD="changethis"
+```
 
 ### 3. Start the Application via Docker
 
@@ -104,29 +110,68 @@ docker-compose exec backend uv run alembic revision --autogenerate -m "descripti
 docker-compose exec backend uv run alembic upgrade head
 ```
 
-## Testing
+---
 
-Tests are written using `pytest` and configured for async execution with `pytest-asyncio`.
+## 🛠️ Testing & Code Quality
 
-To run the test suite:
+### Testing
+
+Tests are written using `pytest` and configured for async execution with `pytest-asyncio`. Configuration details can be found in `pytest.ini`.
+
+To run the test suite locally:
 
 ```bash
 uv run pytest
 ```
 
-Configuration details for `pytest` can be found in `pytest.ini`. 
-
-## Code Quality
+### Code Quality
 
 This project uses [Ruff](https://docs.astral.sh/ruff/) for both code linting and formatting. The configurations are specified in `pyproject.toml`.
 
-To check formatting and lint files:
+- **Check for issues:** `uv run ruff check .`
+- **Format code:** `uv run ruff format .`
+- **Auto-fix lint issues:** `uv run ruff check --fix .`
+
+---
+
+## 📂 Project Structure
+
 ```bash
-uv run ruff check .
+├── app/
+│   ├── alembic/          # Database migration configurations
+│   ├── api/              # API Layer: FastAPI routers and route handlers
+│   ├── core/             # Core configurations, security, exceptions, logging
+│   ├── models/           # Domain Layer: SQLAlchemy definitions
+│   ├── repositories/     # Data Layer: Database operations and queries
+│   ├── schemas/          # API Layer: Pydantic request/response schemas
+│   ├── services/         # Business Logic Layer: Core use cases and orchestration
+│   ├── tests/            # Test suite (integration and unit tests)
+│   ├── utils/            # Helper functions and shared utilities
+│   └── main.py           # Application entry point
+├── alembic.ini           # Alembic settings
+├── docker-compose.yaml   # Docker compose configuration (e.g., PostgreSQL DB)
+├── Dockerfile            # Dockerfile for backend container
+├── pyproject.toml        # Project dependencies and tool configurations
+├── pytest.ini            # Pytest settings
+└── uv.lock               # Dependency lock file
 ```
 
-To automatically format the code and fix auto-fixable lint issues:
-```bash
-uv run ruff format .
-uv run ruff check --fix .
-```
+---
+
+## 🤝 Contributing
+
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+> This project follows [Conventional Commits](https://www.conventionalcommits.org/).
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'feat: Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See the `LICENSE` file at the root of the workspace for more information.

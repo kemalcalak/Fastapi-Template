@@ -1,34 +1,95 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.deps import SessionDep
-from app.schemas.token import Token
+from app.core.config import settings
+from app.core.messages.error_message import ErrorMessages
+from app.core.messages.success_message import SuccessMessages
+from app.schemas.token import LoginResponse, Token
 from app.schemas.user import UserCreate, UserPublic
-from app.services.auth_service import login_service, register_service
+from app.services.auth_service import (
+    login_service,
+    refresh_token_service,
+    register_service,
+    logout_service,
+)
 
 router = APIRouter()
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
 async def login_access_token(
+    response: Response,
     request: Request,
     session: SessionDep,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-) -> Token:
+) -> LoginResponse:
     """
     OAuth2 compatible token login, get an access token for future requests.
     """
-    return await login_service(
+    result = await login_service(
         request=request,
         session=session,
         email=form_data.username,
         password=form_data.password,
     )
 
+    # Set refresh token in HttpOnly cookie
+    response.set_cookie(
+        key="refresh_token",
+        value=result.refresh_token,
+        httponly=True,
+        secure=settings.ENVIRONMENT != "local",
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path=f"{settings.API_V1_STR}/auth/refresh",
+    )
 
-@router.post("/register", response_model=UserPublic)
+    return LoginResponse(
+        access_token=result.access_token,
+        user=result.user,
+    )
+
+
+@router.post("/refresh", response_model=Token, status_code=status.HTTP_200_OK)
+async def refresh_token(
+    request: Request,
+    session: SessionDep,
+) -> Token:
+    """
+    Refresh access token using the refresh token from cookie.
+    """
+    refresh_token_cookie = request.cookies.get("refresh_token")
+    if not refresh_token_cookie:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ErrorMessages.REFRESH_TOKEN_MISSING,
+        )
+
+    return await refresh_token_service(
+        session=session, refresh_token=refresh_token_cookie
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+async def logout(request: Request, response: Response, session: SessionDep) -> dict[str, str]:
+    """
+    Clear refresh token cookie and invalidate token in the blacklist.
+    """
+    refresh_token = request.cookies.get("refresh_token")
+    if refresh_token:
+        await logout_service(session, refresh_token)
+
+    response.delete_cookie(
+        key="refresh_token",
+        path=f"{settings.API_V1_STR}/auth/refresh",
+    )
+    return {"message": SuccessMessages.LOGOUT_SUCCESS}
+
+
+@router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
 async def register_user(
     request: Request, session: SessionDep, user_in: UserCreate
 ) -> UserPublic:
@@ -36,3 +97,4 @@ async def register_user(
     Register a new user.
     """
     return await register_service(request=request, session=session, user_create=user_in)
+

@@ -20,8 +20,6 @@ services:
     ports:
       - "5432:5432"
 
-
-
   backend:
     build:
       context: .
@@ -33,8 +31,8 @@ services:
         condition: service_healthy
         restart: true
     volumes:
-      - ./app:/app/app  # Mount source code for live reloading
-      - ./alembic.ini:/app/alembic.ini  # Mount alembic configuration
+      - ./app:/app/app # Mount source code for live reloading
+      - ./alembic.ini:/app/alembic.ini # Mount alembic configuration
     env_file:
       - .env
     environment:
@@ -53,11 +51,6 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN:-}
-      - AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME:-}
-      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY:-}
-      - AZURE_STORAGE_ENDPOINT_SUFFIX=${AZURE_STORAGE_ENDPOINT_SUFFIX:-}
-      - AZURE_BLOB_CONTAINER=${AZURE_BLOB_CONTAINER:-}
-      - AZURE_BLOB_PUBLIC_BASE_URL=${AZURE_BLOB_PUBLIC_BASE_URL:-}
 
 volumes:
   app-db-data:

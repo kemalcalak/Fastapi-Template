@@ -7,3 +7,4 @@ class SuccessMessages:
     # Auth Specific
     LOGIN_SUCCESS = "success.auth.login"
     PASSWORD_RESET_SENT = "success.auth.password_reset_sent"
+    LOGOUT_SUCCESS = "success.auth.logout_success"
