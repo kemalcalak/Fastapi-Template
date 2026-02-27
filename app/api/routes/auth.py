@@ -9,6 +9,8 @@ from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.schemas.token import LoginResponse, Token
 from app.schemas.user import UserCreate, UserPublic
+from app.schemas.user_activity import ActivityType, ResourceType, ActivityStatus
+from app.services.user_activity_service import log_activity
 from app.services.auth_service import (
     login_service,
     refresh_token_service,
@@ -68,9 +70,23 @@ async def refresh_token(
             detail=ErrorMessages.REFRESH_TOKEN_MISSING,
         )
 
-    return await refresh_token_service(
-        session=session, refresh_token=refresh_token_cookie
-    )
+    try:
+        return await refresh_token_service(
+            request=request, session=session, refresh_token=refresh_token_cookie
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),  # Unknown user
+            activity_type=ActivityType.LOGIN,
+            resource_type=ResourceType.AUTH,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/refresh"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
@@ -79,14 +95,28 @@ async def logout(request: Request, response: Response, session: SessionDep) -> d
     Clear refresh token cookie and invalidate token in the blacklist.
     """
     refresh_token = request.cookies.get("refresh_token")
-    if refresh_token:
-        await logout_service(session, refresh_token)
+    try:
+        if refresh_token:
+            await logout_service(request=request, session=session, refresh_token=refresh_token)
 
-    response.delete_cookie(
-        key="refresh_token",
-        path=f"{settings.API_V1_STR}/auth/refresh",
-    )
-    return {"message": SuccessMessages.LOGOUT_SUCCESS}
+        response.delete_cookie(
+            key="refresh_token",
+            path=f"{settings.API_V1_STR}/auth/refresh",
+        )
+        return {"message": SuccessMessages.LOGOUT_SUCCESS}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),  # Unknown user
+            activity_type=ActivityType.LOGOUT,
+            resource_type=ResourceType.AUTH,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/logout"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)

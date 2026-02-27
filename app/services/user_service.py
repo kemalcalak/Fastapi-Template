@@ -17,7 +17,7 @@ from app.repositories.user import (
 )
 from app.schemas.msg import Message
 from app.schemas.user import UserCreate, UsersPublic, UserUpdate, UserUpdateMe
-from app.schemas.user_activity import ActivityType, ResourceType
+from app.schemas.user_activity import ActivityType, ResourceType, ActivityStatus
 from app.services.user_activity_service import log_activity
 
 
@@ -29,6 +29,15 @@ async def delete_own_account_service(
     Uses soft delete.
     """
     if not verify_password(password, current_user.hashed_password):
+        await log_activity(
+            session=session,
+            user_id=current_user.id,
+            activity_type=ActivityType.DELETE,
+            resource_type=ResourceType.USER,
+            status=ActivityStatus.FAILURE,
+            details={"reason": "invalid_password"},
+            request=request,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ErrorMessages.INVALID_PASSWORD,
@@ -81,6 +90,16 @@ async def create_user_service(
     # 1. Guard check: Email must be unique
     existing_user = await get_user_by_email(session, email=user_create.email)
     if existing_user:
+        if current_user and request:
+            await log_activity(
+                session=session,
+                user_id=current_user.id,
+                activity_type=ActivityType.CREATE,
+                resource_type=ResourceType.USER,
+                status=ActivityStatus.FAILURE,
+                details={"reason": "email_already_exists", "email": user_create.email},
+                request=request,
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=ErrorMessages.EMAIL_ALREADY_EXISTS,
@@ -140,6 +159,15 @@ async def update_user_service(
     if user_update.email and user_update.email != db_user.email:
         existing_user = await get_user_by_email(session, email=user_update.email)
         if existing_user:
+            await log_activity(
+                session=session,
+                user_id=current_user.id,
+                activity_type=ActivityType.UPDATE,
+                resource_type=ResourceType.USER,
+                status=ActivityStatus.FAILURE,
+                details={"reason": "email_already_exists", "email": user_update.email},
+                request=request,
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=ErrorMessages.EMAIL_ALREADY_EXISTS,
