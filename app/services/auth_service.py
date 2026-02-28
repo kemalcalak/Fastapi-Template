@@ -4,10 +4,16 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
+from app.core.messages.success_message import SuccessMessages
 from app.core.security import (
     create_access_token,
+    create_password_reset_token,
     create_refresh_token,
+    generate_new_account_token,
+    get_password_hash,
+    verify_new_account_token,
     verify_password,
+    verify_password_reset_token,
     verify_refresh_token,
 )
 from app.models.user import User
@@ -15,12 +21,19 @@ from app.repositories.token_blacklist import (
     add_token_to_blacklist,
     is_token_blacklisted,
 )
-from app.repositories.user import get_user_by_email, get_user_by_id
+from app.repositories.user import get_user_by_email, get_user_by_id, update_user
+from app.schemas.msg import Message
 from app.schemas.token import AuthTokens, Token
-from app.schemas.user import UserCreate, UserPublic
+from app.schemas.user import Language, UserCreate, UserPublic
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_activity_service import log_activity
 from app.services.user_service import create_user_service
+from app.core.config import settings
+from app.core.email import send_email
+from app.utils.email_templates import (
+    generate_email_verification_email,
+    generate_password_reset_email,
+)
 
 
 async def register_service(
@@ -42,6 +55,26 @@ async def register_service(
         details={"email": user.email},
         request=request,
     )
+    
+    # Generate verification token
+    verification_token = generate_new_account_token(user.email)
+    
+    verify_url = f"{settings.FRONTEND_HOST}/verify-email?token={verification_token}"
+    
+    email_data = generate_email_verification_email(
+        verify_link=verify_url,
+        project_name=settings.PROJECT_NAME,
+        lang=user_create.lang
+    )
+
+    await send_email(
+        to=user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(user.id),
+    )
+
     return UserPublic.model_validate(user)
 
 
@@ -91,6 +124,12 @@ async def authenticate(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorMessages.USER_INACTIVE,
+        )
+
+    if not getattr(user, "is_verified", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.EMAIL_NOT_VERIFIED,
         )
 
     return user
@@ -210,3 +249,109 @@ async def logout_service(
                 )
             except ValueError:
                 pass
+
+
+async def verify_email_service(
+    request: Request, session: AsyncSession, token: str
+) -> Message:
+    email = verify_new_account_token(token)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.INVALID_VERIFICATION_TOKEN,
+        )
+    
+    user = await get_user_by_email(session, email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.USER_NOT_FOUND,
+        )
+    
+    if getattr(user, "is_verified", False):
+         return Message(success=True, message=SuccessMessages.EMAIL_VERIFIED)
+
+    await update_user(session, user, {"is_verified": True})
+
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.USER,
+        details={"email_verified": True},
+        request=request,
+    )
+
+    return Message(success=True, message=SuccessMessages.EMAIL_VERIFIED)
+
+
+async def recover_password_service(
+    request: Request, session: AsyncSession, email: str, lang: str = Language.EN
+) -> Message:
+    user = await get_user_by_email(session, email)
+    
+    # We always return success so as not to leak emails
+    if not user or not user.is_active or user.is_deleted:
+        return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SENT)
+    
+    token = create_password_reset_token(email)
+    
+    reset_url = f"{settings.FRONTEND_HOST}/reset-password?token={token}"
+
+    email_data = generate_password_reset_email(
+        reset_link=reset_url,
+        project_name=settings.PROJECT_NAME,
+        lang=lang
+    )
+
+    await send_email(
+        to=user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(user.id),
+    )
+
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.AUTH,
+        details={"action": "password_recovery_requested"},
+        request=request,
+    )
+    
+    return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SENT)
+
+
+async def reset_password_service(
+    request: Request, session: AsyncSession, token: str, new_password: str
+) -> Message:
+    email = verify_password_reset_token(token)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.INVALID_VERIFICATION_TOKEN,
+        )
+    
+    user = await get_user_by_email(session, email)
+    if not user or not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.USER_NOT_FOUND,
+        )
+    
+    hashed_password = get_password_hash(new_password)
+    
+    await update_user(session, user, {"hashed_password": hashed_password})
+    
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.AUTH,
+        details={"action": "password_reset_completed"},
+        request=request,
+    )
+    
+    return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)

@@ -106,7 +106,7 @@ async def create_user_service(
         )
 
     # 2. Prepare user object
-    user_data = user_create.model_dump(exclude={"password"})
+    user_data = user_create.model_dump(exclude={"password", "lang"})
     db_obj = User(**user_data, hashed_password=get_password_hash(user_create.password))
 
     # 3. Call repository

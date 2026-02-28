@@ -12,12 +12,18 @@ class SystemRole(str, Enum):
     USER = "user"
 
 
+class Language(str, Enum):
+    EN = "en"
+    TR = "tr"
+
+
 # Shared properties
 class UserBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     email: EmailStr = Field(max_length=255)
     is_active: bool = True
+    is_verified: bool = False
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=100)
@@ -28,6 +34,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=40)
     role: SystemRole = SystemRole.USER
+    lang: Language = Language.EN
 
     @field_validator("role")
     @classmethod
@@ -91,3 +98,14 @@ class UsersPublic(BaseModel):
 class NewPassword(BaseModel):
     token: str
     new_password: str = Field(min_length=8, max_length=40)
+    lang: Language = Language.EN
+
+
+class ForgotPassword(BaseModel):
+    email: EmailStr = Field(max_length=255)
+    lang: Language = Language.EN
+
+
+class VerifyEmail(BaseModel):
+    token: str
+    lang: Language = Language.EN

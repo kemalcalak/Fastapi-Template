@@ -24,7 +24,7 @@ async def test_register(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_login(client: AsyncClient):
-    # Register first (to ensure user exists in the DB for the session)
+    # Register first
     await client.post(
         "/auth/register",
         json={
@@ -35,20 +35,24 @@ async def test_login(client: AsyncClient):
         },
     )
 
-    # Now try to login using form data
+    # Login should fail because of unverified email
     response = await client.post(
         "/auth/login", data={"username": "test2@test.com", "password": "password123"}
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
-    assert "refresh_token" in response.cookies
+    assert response.status_code == 403
+    assert response.json()["error"] == ErrorMessages.EMAIL_NOT_VERIFIED
+
+    # We need to manually verify them in DB or bypass this.
+    # We will test the `/verify-email` endpoint below to verify this properly.
 
 
 @pytest.mark.asyncio
 async def test_refresh_token_and_logout(client: AsyncClient):
-    # Register and login
+    from sqlalchemy import update
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
+    # Register
     await client.post(
         "/auth/register",
         json={
@@ -58,6 +62,12 @@ async def test_refresh_token_and_logout(client: AsyncClient):
             "last_name": "User3",
         },
     )
+    
+    # Verify the user directly in DB to test the rest of the flow
+    async with TestingSessionLocal() as session:
+        await session.execute(update(User).where(User.email == "test3@test.com").values(is_verified=True))
+        await session.commit()
+
     login_response = await client.post(
         "/auth/login", data={"username": "test3@test.com", "password": "password123"}
     )
@@ -83,3 +93,103 @@ async def test_refresh_token_and_logout(client: AsyncClient):
     failed_refresh_response = await client.post("/auth/refresh")
     assert failed_refresh_response.status_code == 401
     assert failed_refresh_response.json()["error"] == ErrorMessages.INVALID_TOKEN
+
+
+@pytest.mark.asyncio
+async def test_verify_email_flow(client: AsyncClient):
+    from sqlalchemy import select
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+    from app.core.security import generate_new_account_token
+
+    email = "test4@test.com"
+
+    # Register
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "password123",
+            "first_name": "Test4",
+            "last_name": "User4",
+        },
+    )
+
+    # Validate db state before verification
+    async with TestingSessionLocal() as session:
+        result = await session.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        assert user is not None
+        assert not user.is_verified
+
+    # Generate token
+    token = generate_new_account_token(email)
+
+    # Verify Email
+    response = await client.post("/auth/verify-email", json={"token": token})
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    # Validate db state after verification
+    async with TestingSessionLocal() as session:
+        result = await session.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        assert user.is_verified
+
+    # Login should now succeed
+    login_response = await client.post(
+        "/auth/login", data={"username": email, "password": "password123"}
+    )
+    assert login_response.status_code == 200
+    assert "access_token" in login_response.json()
+
+
+@pytest.mark.asyncio
+async def test_forgot_and_reset_password_flow(client: AsyncClient):
+    from app.core.security import create_password_reset_token
+
+    email = "test5@test.com"
+    old_password = "password123"
+    new_password = "newPassword456"
+
+    # Register
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": old_password,
+            "first_name": "Test5",
+            "last_name": "User5",
+        },
+    )
+
+    # Call Forgot Password
+    forgot_response = await client.post("/auth/forgot-password", json={"email": email})
+    assert forgot_response.status_code == 200
+    assert forgot_response.json()["success"] is True
+
+    # Verify that requesting for an unknown email also works (no email leaking)
+    unknown_forgot_response = await client.post("/auth/forgot-password", json={"email": "unknown@test.com"})
+    assert unknown_forgot_response.status_code == 200
+
+    # Reset Password
+    reset_token = create_password_reset_token(email)
+    reset_response = await client.post(
+        "/auth/reset-password", json={"token": reset_token, "new_password": new_password}
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["success"] is True
+
+    # Fix is_verified so we can login
+    from sqlalchemy import update
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+    async with TestingSessionLocal() as session:
+        await session.execute(update(User).where(User.email == email).values(is_verified=True))
+        await session.commit()
+
+    # Login with new password
+    login_response = await client.post(
+        "/auth/login", data={"username": email, "password": new_password}
+    )
+    assert login_response.status_code == 200 

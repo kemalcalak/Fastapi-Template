@@ -1,12 +1,32 @@
-def generate_password_reset_html(reset_link: str, project_name: str) -> str:
+from typing import Dict
+from app.schemas.user import Language
+
+def generate_password_reset_email(reset_link: str, project_name: str, lang: str = Language.EN) -> dict[str, str]:
     """
-    Generate HTML for password reset email.
+    Generate subject, HTML, and plain text for password reset email.
     """
-    return f"""<!DOCTYPE html>
+    if lang == Language.TR:
+        subject = "Parola Sıfırlama İsteği"
+        greeting = "Merhaba,"
+        message = "Hesabınız için şifre sıfırlama talebinde bulundunuz. Şifrenizi yenilemek için aşağıdaki butona tıklayabilirsiniz:"
+        btn_text = "Şifremi Yenile"
+        disclaimer = "Eğer bu talebi siz yapmadıysanız, bu e-postayı güvenle görmezden gelebilirsiniz.<br>Bu bağlantı kısa bir süreliğine geçerlidir."
+        footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
+        plain_text = f"Lütfen bağlantıya tıklayarak parolanızı sıfırlayın: {reset_link}"
+    else:
+        subject = "Password Reset Request"
+        greeting = "Hello,"
+        message = "You have requested a password reset for your account. You can click the button below to reset your password:"
+        btn_text = "Reset Password"
+        disclaimer = "If you didn't request this, you can safely ignore this email.<br>This link is valid for a short time."
+        footer_text = f"&copy; {project_name}. All rights reserved."
+        plain_text = f"Please reset your password by clicking on the link: {reset_link}"
+
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Şifre Sıfırlama</title>
+    <title>{subject}</title>
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -60,31 +80,53 @@ def generate_password_reset_html(reset_link: str, project_name: str) -> str:
             <h2 style="margin: 0;">{project_name}</h2>
         </div>
         <div class="content">
-            <p>Merhaba,</p>
-            <p>Hesabınız için şifre sıfırlama talebinde bulundunuz. Şifrenizi yenilemek için aşağıdaki butona tıklayabilirsiniz:</p>
+            <p>{greeting}</p>
+            <p>{message}</p>
             <div class="button-wrapper">
-                <a href="{reset_link}" class="button">Şifremi Yenile</a>
+                <a href="{reset_link}" class="button">{btn_text}</a>
             </div>
-            <p>Eğer bu talebi siz yapmadıysanız, bu e-postayı güvenle görmezden gelebilirsiniz.</p>
-            <p>Bu bağlantı kısa bir süreliğine geçerlidir.</p>
+            <p>{disclaimer}</p>
         </div>
         <div class="footer">
-            <p>&copy; {project_name}. Tüm hakları saklıdır.</p>
+            <p>{footer_text}</p>
         </div>
     </div>
 </body>
 </html>"""
 
+    return {
+        "subject": subject,
+        "html": html,
+        "plain_text": plain_text
+    }
 
-def generate_email_verification_html(verify_link: str, project_name: str) -> str:
+
+def generate_email_verification_email(verify_link: str, project_name: str, lang: str = Language.EN) -> dict[str, str]:
     """
-    Generate HTML for email verification.
+    Generate subject, HTML, and plain text for email verification.
     """
-    return f"""<!DOCTYPE html>
+    if lang == Language.TR:
+        subject = "E-postanızı Doğrulayın"
+        greeting = "Merhaba,"
+        message = "Aramıza hoş geldiniz! Kayıt işleminizi tamamlamak ve e-posta adresinizi doğrulamak için lütfen aşağıdaki butona tıklayın:"
+        btn_text = "E-posta Adresimi Doğrula"
+        disclaimer = "Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsiniz."
+        footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
+        plain_text = f"Lütfen bağlantıya tıklayarak e-postanızı doğrulayın: {verify_link}"
+    else:
+        subject = "Verify Your Email"
+        greeting = "Hello,"
+        message = "Welcome! Please click the button below to complete your registration and verify your email address:"
+        btn_text = "Verify My Email"
+        disclaimer = "If you didn't create this account, you can ignore this email."
+        footer_text = f"&copy; {project_name}. All rights reserved."
+        plain_text = f"Please verify your email by clicking on the link: {verify_link}"
+
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>E-posta Doğrulama</title>
+    <title>{subject}</title>
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -138,16 +180,22 @@ def generate_email_verification_html(verify_link: str, project_name: str) -> str
             <h2 style="margin: 0;">{project_name}</h2>
         </div>
         <div class="content">
-            <p>Merhaba,</p>
-            <p>Aramıza hoş geldiniz! Kayıt işleminizi tamamlamak ve e-posta adresinizi doğrulamak için lütfen aşağıdaki butona tıklayın:</p>
+            <p>{greeting}</p>
+            <p>{message}</p>
             <div class="button-wrapper">
-                <a href="{verify_link}" class="button">E-posta Adresimi Doğrula</a>
+                <a href="{verify_link}" class="button">{btn_text}</a>
             </div>
-            <p>Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsiniz.</p>
+            <p>{disclaimer}</p>
         </div>
         <div class="footer">
-            <p>&copy; {project_name}. Tüm hakları saklıdır.</p>
+            <p>{footer_text}</p>
         </div>
     </div>
 </body>
 </html>"""
+
+    return {
+        "subject": subject,
+        "html": html,
+        "plain_text": plain_text
+    }

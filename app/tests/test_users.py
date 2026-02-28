@@ -19,6 +19,15 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
         },
     )
 
+    from sqlalchemy import update
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+    
+    # Verify the user directly in DB to test the rest of the flow
+    async with TestingSessionLocal() as session:
+        await session.execute(update(User).where(User.email == "user_test@test.com").values(is_verified=True))
+        await session.commit()
+
     # Login and get token
     response = await client.post(
         "/auth/login",
