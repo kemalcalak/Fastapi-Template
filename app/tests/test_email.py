@@ -5,7 +5,6 @@ import httpx
 import pytest
 from httpx import Response
 
-from app.core import email as email_module
 from app.core.config import settings
 from app.core.email import (
     check_mx_record,
@@ -17,7 +16,7 @@ from app.core.email import (
 @pytest.fixture(autouse=True)
 async def reset_disposable_cache():
     """Reset global disposable cache state before each test"""
-    # Simply flush the redis mock if we're using one, 
+    # Simply flush the redis mock if we're using one,
     # but here we'll just mock the redis client directly per test
     yield
     # No global vars to reset anymore
@@ -111,6 +110,7 @@ async def test_send_email_success():
     settings.SMTP_PASSWORD = "password"
     settings.EMAILS_FROM_EMAIL = "noreply@example.com"
     settings.SMTP_USE_STARTTLS = True  # Ensures STARTTLS is called
+    settings.SMTP_USE_SSL = False
 
     with patch("smtplib.SMTP") as mock_smtp_class:
         # Mock the SMTP instance and context manager
@@ -137,8 +137,45 @@ async def test_send_email_success():
 
 
 @pytest.mark.asyncio
+async def test_send_email_ssl_success():
+    # Setup SMTP SSL configurations for testing
+    settings.SMTP_HOST = "localhost"
+    settings.SMTP_PORT = 465
+    settings.SMTP_USER = "user"
+    settings.SMTP_PASSWORD = "password"
+    settings.EMAILS_FROM_EMAIL = "noreply@example.com"
+    settings.SMTP_USE_STARTTLS = False
+    settings.SMTP_USE_SSL = True
+
+    with patch("smtplib.SMTP_SSL") as mock_smtp_class:
+        # Mock the SMTP_SSL instance and context manager
+        mock_smtp_instance = mock_smtp_class.return_value.__enter__.return_value
+
+        result = await send_email(
+            to="test@example.com",
+            subject="Test Subject",
+            body="Test Body",
+            plain_text="Test Body Plain",
+            user_id="123",
+        )
+
+        assert result is True
+        mock_smtp_class.assert_called_with(
+            settings.SMTP_HOST, settings.SMTP_PORT, timeout=15
+        )
+        # ehlo and starttls should NOT be called for SMTP_SSL in our implementation
+        mock_smtp_instance.ehlo.assert_not_called()
+        mock_smtp_instance.starttls.assert_not_called()
+        mock_smtp_instance.login.assert_called_with(
+            settings.SMTP_USER, settings.SMTP_PASSWORD
+        )
+        mock_smtp_instance.send_message.assert_called()
+
+
+@pytest.mark.asyncio
 async def test_send_email_failure():
     settings.SMTP_HOST = "localhost"
+    settings.SMTP_USE_SSL = False
 
     with patch("smtplib.SMTP") as mock_smtp_class:
         # Simulate network or login failure
