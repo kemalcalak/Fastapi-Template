@@ -92,7 +92,7 @@ async def authenticate(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorMessages.INVALID_PASSWORD,
+            detail=ErrorMessages.INVALID_CREDENTIALS,
         )
 
     if not verify_password(password, user.hashed_password):
@@ -108,7 +108,7 @@ async def authenticate(
             )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorMessages.INVALID_PASSWORD,
+            detail=ErrorMessages.INVALID_CREDENTIALS,
         )
 
     if not user.is_active:
