@@ -93,7 +93,7 @@ async def send_email(
     body: str,
     plain_text: str,
     user_id: str | None = None,
-    is_html: bool = False,
+    is_html: bool = True,
 ) -> bool:
     """
     Send an email via configured SMTP server.

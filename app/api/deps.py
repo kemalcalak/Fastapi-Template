@@ -12,6 +12,7 @@ from app.core.db import AsyncSessionLocal
 from app.core.messages.error_message import ErrorMessages
 from app.core.security import verify_token
 from app.models.user import User
+from app.repositories.token_blacklist import is_token_blacklisted
 from app.repositories.user import get_user_by_id
 from app.schemas.token import TokenPayload
 from app.schemas.user import SystemRole
@@ -33,6 +34,14 @@ async def get_current_user(
     Get current authenticated user from JWT token.
     """
     try:
+        # Check if token is blacklisted
+        if await is_token_blacklisted(db, token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         # Verify and decode token
         token_subject = verify_token(token)
         if token_subject is None:

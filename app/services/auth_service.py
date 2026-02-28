@@ -73,6 +73,7 @@ async def register_service(
         body=email_data["html"],
         plain_text=email_data["plain_text"],
         user_id=str(user.id),
+        is_html=True,
     )
 
     return UserPublic.model_validate(user)
@@ -252,8 +253,15 @@ async def logout_service(
 
 
 async def verify_email_service(
-    request: Request, session: AsyncSession, token: str
+    request: Request, session: AsyncSession, token: str, lang: str = Language.EN
 ) -> Message:
+    # Check if token is blacklisted
+    if await is_token_blacklisted(session, token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.INVALID_TOKEN,
+        )
+
     email = verify_new_account_token(token)
     if not email:
         raise HTTPException(
@@ -272,6 +280,9 @@ async def verify_email_service(
         return Message(success=True, message=SuccessMessages.EMAIL_VERIFIED)
 
     await update_user(session, user, {"is_verified": True})
+
+    # Blacklist the token after successful use
+    await add_token_to_blacklist(session, token)
 
     await log_activity(
         session=session,
@@ -308,6 +319,7 @@ async def recover_password_service(
         body=email_data["html"],
         plain_text=email_data["plain_text"],
         user_id=str(user.id),
+        is_html=True,
     )
 
     await log_activity(
@@ -325,6 +337,13 @@ async def recover_password_service(
 async def reset_password_service(
     request: Request, session: AsyncSession, token: str, new_password: str
 ) -> Message:
+    # Check if token is blacklisted
+    if await is_token_blacklisted(session, token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.INVALID_TOKEN,
+        )
+
     email = verify_password_reset_token(token)
     if not email:
         raise HTTPException(
@@ -343,6 +362,9 @@ async def reset_password_service(
 
     await update_user(session, user, {"hashed_password": hashed_password})
 
+    # Blacklist the token after successful use
+    await add_token_to_blacklist(session, token)
+
     await log_activity(
         session=session,
         user_id=user.id,
@@ -353,3 +375,47 @@ async def reset_password_service(
     )
 
     return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)
+
+
+async def resend_verification_service(
+    request: Request, session: AsyncSession, email: str, lang: str = Language.EN
+) -> Message:
+    user = await get_user_by_email(session, email)
+
+    # We always return success so as not to leak emails
+    if not user or not user.is_active or user.is_deleted:
+        return Message(success=True, message=SuccessMessages.VERIFICATION_EMAIL_SENT)
+
+    if getattr(user, "is_verified", False):
+        return Message(success=True, message=SuccessMessages.EMAIL_VERIFIED)
+
+    # Generate verification token
+    verification_token = generate_new_account_token(user.email)
+
+    verify_url = f"{settings.FRONTEND_HOST}/verify-email?token={verification_token}"
+
+    email_data = generate_email_verification_email(
+        verify_link=verify_url,
+        project_name=settings.PROJECT_NAME,
+        lang=lang,
+    )
+
+    await send_email(
+        to=user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(user.id),
+        is_html=True,
+    )
+
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.AUTH,
+        details={"action": "verification_email_resend_requested"},
+        request=request,
+    )
+
+    return Message(success=True, message=SuccessMessages.VERIFICATION_EMAIL_SENT)

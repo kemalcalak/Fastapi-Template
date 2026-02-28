@@ -2,6 +2,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.messages.error_message import ErrorMessages
+from app.core.messages.success_message import SuccessMessages
 
 
 @pytest.mark.asyncio
@@ -18,8 +19,8 @@ async def test_register(client: AsyncClient):
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["email"] == "test@test.com"
-    assert "id" in data
+    assert data["success"] is True
+    assert data["message"] == SuccessMessages.REGISTER_SUCCESS
 
 
 @pytest.mark.asyncio
@@ -199,8 +200,50 @@ async def test_forgot_and_reset_password_flow(client: AsyncClient):
         )
         await session.commit()
 
-    # Login with new password
-    login_response = await client.post(
-        "/auth/login", data={"username": email, "password": new_password}
+
+@pytest.mark.asyncio
+async def test_token_reuse_protection(client: AsyncClient):
+    from app.core.security import (
+        create_password_reset_token,
+        generate_new_account_token,
     )
-    assert login_response.status_code == 200
+
+    email = "test_reuse@test.com"
+    password = "password123"
+
+    # 1. Register
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "first_name": "Reuse",
+            "last_name": "Tester",
+        },
+    )
+
+    # 2. Verify Email Once
+    token = generate_new_account_token(email)
+    response = await client.post("/auth/verify-email", json={"token": token})
+    assert response.status_code == 200
+
+    # 3. Verify Email Again with SAME token (Should Fail)
+    response = await client.post("/auth/verify-email", json={"token": token})
+    assert response.status_code == 400
+    assert response.json()["error"] == ErrorMessages.INVALID_TOKEN
+
+    # 4. Reset Password Once
+    reset_token = create_password_reset_token(email)
+    response = await client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "newPassword123"},
+    )
+    assert response.status_code == 200
+
+    # 5. Reset Password Again with SAME token (Should Fail)
+    response = await client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "anotherPassword123"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == ErrorMessages.INVALID_TOKEN

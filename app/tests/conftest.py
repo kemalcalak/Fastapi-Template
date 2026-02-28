@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -51,3 +53,12 @@ async def client() -> AsyncClient:
         transport=ASGITransport(app=app), base_url=f"http://test{settings.API_V1_STR}"
     ) as ac:
         yield ac
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_email_send():
+    """
+    Mock the send_email function to avoid sending real emails during tests.
+    """
+    with patch("app.services.auth_service.send_email", new_callable=AsyncMock) as mock:
+        yield mock

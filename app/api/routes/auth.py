@@ -24,6 +24,7 @@ from app.services.auth_service import (
     recover_password_service,
     refresh_token_service,
     register_service,
+    resend_verification_service,
     reset_password_service,
     verify_email_service,
 )
@@ -135,15 +136,16 @@ async def logout(
 
 
 @router.post(
-    "/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED
+    "/register", response_model=Message, status_code=status.HTTP_201_CREATED
 )
 async def register_user(
     request: Request, session: SessionDep, user_in: UserCreate
-) -> UserPublic:
+) -> Message:
     """
     Register a new user.
     """
-    return await register_service(request=request, session=session, user_create=user_in)
+    await register_service(request=request, session=session, user_create=user_in)
+    return Message(success=True, message=SuccessMessages.REGISTER_SUCCESS)
 
 
 @router.post("/verify-email", response_model=Message, status_code=status.HTTP_200_OK)
@@ -154,7 +156,7 @@ async def verify_email(
     Verify user email using the token sent via email.
     """
     return await verify_email_service(
-        request=request, session=session, token=body.token
+        request=request, session=session, token=body.token, lang=body.lang
     )
 
 
@@ -182,4 +184,18 @@ async def reset_password(
         session=session,
         token=body.token,
         new_password=body.new_password,
+    )
+
+
+@router.post(
+    "/resend-verification", response_model=Message, status_code=status.HTTP_200_OK
+)
+async def resend_verification(
+    request: Request, session: SessionDep, body: ForgotPassword
+) -> Message:
+    """
+    Resend verification email.
+    """
+    return await resend_verification_service(
+        request=request, session=session, email=body.email, lang=body.lang
     )
