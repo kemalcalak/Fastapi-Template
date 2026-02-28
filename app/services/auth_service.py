@@ -3,6 +3,8 @@ import uuid
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.core.security import (
@@ -28,8 +30,6 @@ from app.schemas.user import Language, UserCreate, UserPublic
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_activity_service import log_activity
 from app.services.user_service import create_user_service
-from app.core.config import settings
-from app.core.email import send_email
 from app.utils.email_templates import (
     generate_email_verification_email,
     generate_password_reset_email,
@@ -55,16 +55,16 @@ async def register_service(
         details={"email": user.email},
         request=request,
     )
-    
+
     # Generate verification token
     verification_token = generate_new_account_token(user.email)
-    
+
     verify_url = f"{settings.FRONTEND_HOST}/verify-email?token={verification_token}"
-    
+
     email_data = generate_email_verification_email(
         verify_link=verify_url,
         project_name=settings.PROJECT_NAME,
-        lang=user_create.lang
+        lang=user_create.lang,
     )
 
     await send_email(
@@ -260,16 +260,16 @@ async def verify_email_service(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorMessages.INVALID_VERIFICATION_TOKEN,
         )
-    
+
     user = await get_user_by_email(session, email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ErrorMessages.USER_NOT_FOUND,
         )
-    
+
     if getattr(user, "is_verified", False):
-         return Message(success=True, message=SuccessMessages.EMAIL_VERIFIED)
+        return Message(success=True, message=SuccessMessages.EMAIL_VERIFIED)
 
     await update_user(session, user, {"is_verified": True})
 
@@ -289,19 +289,17 @@ async def recover_password_service(
     request: Request, session: AsyncSession, email: str, lang: str = Language.EN
 ) -> Message:
     user = await get_user_by_email(session, email)
-    
+
     # We always return success so as not to leak emails
     if not user or not user.is_active or user.is_deleted:
         return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SENT)
-    
+
     token = create_password_reset_token(email)
-    
+
     reset_url = f"{settings.FRONTEND_HOST}/reset-password?token={token}"
 
     email_data = generate_password_reset_email(
-        reset_link=reset_url,
-        project_name=settings.PROJECT_NAME,
-        lang=lang
+        reset_link=reset_url, project_name=settings.PROJECT_NAME, lang=lang
     )
 
     await send_email(
@@ -320,7 +318,7 @@ async def recover_password_service(
         details={"action": "password_recovery_requested"},
         request=request,
     )
-    
+
     return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SENT)
 
 
@@ -333,18 +331,18 @@ async def reset_password_service(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorMessages.INVALID_VERIFICATION_TOKEN,
         )
-    
+
     user = await get_user_by_email(session, email)
     if not user or not user.is_active or user.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ErrorMessages.USER_NOT_FOUND,
         )
-    
+
     hashed_password = get_password_hash(new_password)
-    
+
     await update_user(session, user, {"hashed_password": hashed_password})
-    
+
     await log_activity(
         session=session,
         user_id=user.id,
@@ -353,5 +351,5 @@ async def reset_password_service(
         details={"action": "password_reset_completed"},
         request=request,
     )
-    
+
     return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)

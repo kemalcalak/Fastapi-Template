@@ -1,7 +1,9 @@
-from typing import Dict
 from app.schemas.user import Language
 
-def generate_password_reset_email(reset_link: str, project_name: str, lang: str = Language.EN) -> dict[str, str]:
+
+def generate_password_reset_email(
+    reset_link: str, project_name: str, lang: str = Language.EN
+) -> dict[str, str]:
     """
     Generate subject, HTML, and plain text for password reset email.
     """
@@ -94,14 +96,12 @@ def generate_password_reset_email(reset_link: str, project_name: str, lang: str 
 </body>
 </html>"""
 
-    return {
-        "subject": subject,
-        "html": html,
-        "plain_text": plain_text
-    }
+    return {"subject": subject, "html": html, "plain_text": plain_text}
 
 
-def generate_email_verification_email(verify_link: str, project_name: str, lang: str = Language.EN) -> dict[str, str]:
+def generate_email_verification_email(
+    verify_link: str, project_name: str, lang: str = Language.EN
+) -> dict[str, str]:
     """
     Generate subject, HTML, and plain text for email verification.
     """
@@ -112,7 +112,9 @@ def generate_email_verification_email(verify_link: str, project_name: str, lang:
         btn_text = "E-posta Adresimi Doğrula"
         disclaimer = "Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsiniz."
         footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
-        plain_text = f"Lütfen bağlantıya tıklayarak e-postanızı doğrulayın: {verify_link}"
+        plain_text = (
+            f"Lütfen bağlantıya tıklayarak e-postanızı doğrulayın: {verify_link}"
+        )
     else:
         subject = "Verify Your Email"
         greeting = "Hello,"
@@ -194,8 +196,4 @@ def generate_email_verification_email(verify_link: str, project_name: str, lang:
 </body>
 </html>"""
 
-    return {
-        "subject": subject,
-        "html": html,
-        "plain_text": plain_text
-    }
+    return {"subject": subject, "html": html, "plain_text": plain_text}

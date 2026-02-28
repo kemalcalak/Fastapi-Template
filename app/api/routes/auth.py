@@ -10,7 +10,13 @@ from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.schemas.msg import Message
 from app.schemas.token import LoginResponse, Token
-from app.schemas.user import ForgotPassword, NewPassword, UserCreate, UserPublic, VerifyEmail
+from app.schemas.user import (
+    ForgotPassword,
+    NewPassword,
+    UserCreate,
+    UserPublic,
+    VerifyEmail,
+)
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.auth_service import (
     login_service,
@@ -140,33 +146,31 @@ async def register_user(
     return await register_service(request=request, session=session, user_create=user_in)
 
 
-@router.post(
-    "/verify-email", response_model=Message, status_code=status.HTTP_200_OK
-)
+@router.post("/verify-email", response_model=Message, status_code=status.HTTP_200_OK)
 async def verify_email(
     request: Request, session: SessionDep, body: VerifyEmail
 ) -> Message:
     """
     Verify user email using the token sent via email.
     """
-    return await verify_email_service(request=request, session=session, token=body.token)
+    return await verify_email_service(
+        request=request, session=session, token=body.token
+    )
 
 
-@router.post(
-    "/forgot-password", response_model=Message, status_code=status.HTTP_200_OK
-)
+@router.post("/forgot-password", response_model=Message, status_code=status.HTTP_200_OK)
 async def forgot_password(
     request: Request, session: SessionDep, body: ForgotPassword
 ) -> Message:
     """
     Send an email with a password reset link.
     """
-    return await recover_password_service(request=request, session=session, email=body.email, lang=body.lang)
+    return await recover_password_service(
+        request=request, session=session, email=body.email, lang=body.lang
+    )
 
 
-@router.post(
-    "/reset-password", response_model=Message, status_code=status.HTTP_200_OK
-)
+@router.post("/reset-password", response_model=Message, status_code=status.HTTP_200_OK)
 async def reset_password(
     request: Request, session: SessionDep, body: NewPassword
 ) -> Message:
@@ -174,5 +178,8 @@ async def reset_password(
     Reset password using a token.
     """
     return await reset_password_service(
-        request=request, session=session, token=body.token, new_password=body.new_password
+        request=request,
+        session=session,
+        token=body.token,
+        new_password=body.new_password,
     )
