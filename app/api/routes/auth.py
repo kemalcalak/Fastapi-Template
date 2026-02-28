@@ -14,7 +14,6 @@ from app.schemas.user import (
     ForgotPassword,
     NewPassword,
     UserCreate,
-    UserPublic,
     VerifyEmail,
 )
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
@@ -43,28 +42,42 @@ async def login_access_token(
     """
     OAuth2 compatible token login, get an access token for future requests.
     """
-    result = await login_service(
-        request=request,
-        session=session,
-        email=form_data.username,
-        password=form_data.password,
-    )
+    try:
+        result = await login_service(
+            request=request,
+            session=session,
+            email=form_data.username,
+            password=form_data.password,
+        )
 
-    # Set refresh token in HttpOnly cookie
-    response.set_cookie(
-        key="refresh_token",
-        value=result.refresh_token,
-        httponly=True,
-        secure=settings.ENVIRONMENT != "local",
-        samesite="lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path=f"{settings.API_V1_STR}/auth/refresh",
-    )
+        # Set refresh token in HttpOnly cookie
+        response.set_cookie(
+            key="refresh_token",
+            value=result.refresh_token,
+            httponly=True,
+            secure=settings.ENVIRONMENT != "local",
+            samesite="lax",
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            path=f"{settings.API_V1_STR}/auth/refresh",
+        )
 
-    return LoginResponse(
-        access_token=result.access_token,
-        user=result.user,
-    )
+        return LoginResponse(
+            access_token=result.access_token,
+            user=result.user,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),
+            activity_type=ActivityType.LOGIN,
+            resource_type=ResourceType.AUTH,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/login"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post("/refresh", response_model=Token, status_code=status.HTTP_200_OK)
@@ -101,10 +114,10 @@ async def refresh_token(
         raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
-@router.post("/logout", status_code=status.HTTP_200_OK)
+@router.post("/logout", response_model=Message, status_code=status.HTTP_200_OK)
 async def logout(
     request: Request, response: Response, session: SessionDep
-) -> dict[str, str]:
+) -> Message:
     """
     Clear refresh token cookie and invalidate token in the blacklist.
     """
@@ -119,7 +132,7 @@ async def logout(
             key="refresh_token",
             path=f"{settings.API_V1_STR}/auth/refresh",
         )
-        return {"message": SuccessMessages.LOGOUT_SUCCESS}
+        return Message(success=True, message=SuccessMessages.LOGOUT_SUCCESS)
     except HTTPException:
         raise
     except Exception as e:
@@ -135,17 +148,29 @@ async def logout(
         raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
-@router.post(
-    "/register", response_model=Message, status_code=status.HTTP_201_CREATED
-)
+@router.post("/register", response_model=Message, status_code=status.HTTP_201_CREATED)
 async def register_user(
     request: Request, session: SessionDep, user_in: UserCreate
 ) -> Message:
     """
     Register a new user.
     """
-    await register_service(request=request, session=session, user_create=user_in)
-    return Message(success=True, message=SuccessMessages.REGISTER_SUCCESS)
+    try:
+        await register_service(request=request, session=session, user_create=user_in)
+        return Message(success=True, message=SuccessMessages.REGISTER_SUCCESS)
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),
+            activity_type=ActivityType.CREATE,
+            resource_type=ResourceType.USER,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/register"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post("/verify-email", response_model=Message, status_code=status.HTTP_200_OK)
@@ -155,9 +180,23 @@ async def verify_email(
     """
     Verify user email using the token sent via email.
     """
-    return await verify_email_service(
-        request=request, session=session, token=body.token, lang=body.lang
-    )
+    try:
+        return await verify_email_service(
+            request=request, session=session, token=body.token, lang=body.lang
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),
+            activity_type=ActivityType.UPDATE,
+            resource_type=ResourceType.USER,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/verify-email"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post("/forgot-password", response_model=Message, status_code=status.HTTP_200_OK)
@@ -167,9 +206,23 @@ async def forgot_password(
     """
     Send an email with a password reset link.
     """
-    return await recover_password_service(
-        request=request, session=session, email=body.email, lang=body.lang
-    )
+    try:
+        return await recover_password_service(
+            request=request, session=session, email=body.email, lang=body.lang
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),
+            activity_type=ActivityType.UPDATE,
+            resource_type=ResourceType.USER,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/forgot-password"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post("/reset-password", response_model=Message, status_code=status.HTTP_200_OK)
@@ -179,12 +232,26 @@ async def reset_password(
     """
     Reset password using a token.
     """
-    return await reset_password_service(
-        request=request,
-        session=session,
-        token=body.token,
-        new_password=body.new_password,
-    )
+    try:
+        return await reset_password_service(
+            request=request,
+            session=session,
+            token=body.token,
+            new_password=body.new_password,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),
+            activity_type=ActivityType.UPDATE,
+            resource_type=ResourceType.USER,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/reset-password"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)
 
 
 @router.post(
@@ -196,6 +263,20 @@ async def resend_verification(
     """
     Resend verification email.
     """
-    return await resend_verification_service(
-        request=request, session=session, email=body.email, lang=body.lang
-    )
+    try:
+        return await resend_verification_service(
+            request=request, session=session, email=body.email, lang=body.lang
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_activity(
+            session=session,
+            user_id=uuid.UUID(int=0),
+            activity_type=ActivityType.UPDATE,
+            resource_type=ResourceType.USER,
+            status=ActivityStatus.FAILURE,
+            details={"error": str(e), "endpoint": "/resend-verification"},
+            request=request,
+        )
+        raise HTTPException(status_code=500, detail=ErrorMessages.INTERNAL_SERVER_ERROR)

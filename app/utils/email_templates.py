@@ -9,7 +9,7 @@ def generate_password_reset_email(
     """
     if lang == Language.TR:
         subject = "Parola Sıfırlama İsteği"
-        greeting = f"Selam,"
+        greeting = "Selam,"
         message = "Hesabınız için şifre sıfırlama talebinde bulundunuz. Aşağıdaki butona tıklayarak güvenli bir şekilde yeni şifrenizi belirleyebilirsiniz."
         btn_text = "Şifremi Sıfırla"
         link_issue_text = "Butona tıklamakta sorun mu yaşıyorsunuz? Aşağıdaki bağlantıyı tarayıcınıza kopyalayıp yapıştırabilirsiniz:"
@@ -18,7 +18,7 @@ def generate_password_reset_email(
         plain_text = f"Lütfen bağlantıya tıklayarak parolanızı sıfırlayın: {reset_link}"
     else:
         subject = "Password Reset Request"
-        greeting = f"Hi there,"
+        greeting = "Hi there,"
         message = "We received a request to reset your password. Click the button below to choose a new one safely."
         btn_text = "Reset Password"
         link_issue_text = "Having trouble with the button? Copy and paste the link below into your browser:"
@@ -105,7 +105,6 @@ def generate_password_reset_email(
     return {"subject": subject, "html": html, "plain_text": plain_text}
 
 
-
 def generate_email_verification_email(
     verify_link: str, project_name: str, lang: str = Language.EN
 ) -> dict[str, str]:
@@ -114,7 +113,7 @@ def generate_email_verification_email(
     """
     if lang == Language.TR:
         subject = "E-postanızı Doğrulayın"
-        greeting = f"Hoş geldin!"
+        greeting = "Hoş geldin!"
         message = "Kaydolduğunuz için çok mutluyuz. Hesabınızı aktifleştirmek ve e-posta adresinizi doğrulamak için lütfen aşağıdaki butona tıklayın."
         btn_text = "E-postamı Doğrula"
         link_issue_text = "Buton çalışmıyor mu? Bu bağlantıyı doğrudan tarayıcınıza kopyalayabilirsiniz:"
@@ -125,10 +124,12 @@ def generate_email_verification_email(
         )
     else:
         subject = "Verify Your Email"
-        greeting = f"Welcome aboard!"
+        greeting = "Welcome aboard!"
         message = "We're excited to have you join us. Please verify your email address by clicking the button below to get started."
         btn_text = "Verify Email"
-        link_issue_text = "Button not working? Copy and paste this link into your browser:"
+        link_issue_text = (
+            "Button not working? Copy and paste this link into your browser:"
+        )
         disclaimer = "If you didn't create an account, you can safely ignore this email. No further action is required."
         footer_text = f"&copy; {project_name}. All rights reserved."
         plain_text = f"Please verify your email by clicking on the link: {verify_link}"
