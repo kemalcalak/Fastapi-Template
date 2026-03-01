@@ -253,7 +253,7 @@ async def logout_service(
 
 
 async def verify_email_service(
-    request: Request, session: AsyncSession, token: str, lang: str = Language.EN
+    request: Request, session: AsyncSession, token: str
 ) -> Message:
     # Check if token is blacklisted
     if await is_token_blacklisted(session, token):

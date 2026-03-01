@@ -63,7 +63,7 @@ def generate_password_reset_email(
                         <td class="content" style="padding:40px 48px;">
                             <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#0f172a;">{greeting}</p>
                             <p style="margin:0 0 32px;font-size:16px;line-height:1.6;color:#475569;">{message}</p>
-                            
+
                             <!-- Button CTA -->
                             <table width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
@@ -171,7 +171,7 @@ def generate_email_verification_email(
                         <td class="content" style="padding:40px 48px;">
                             <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#0f172a;">{greeting}</p>
                             <p style="margin:0 0 32px;font-size:16px;line-height:1.6;color:#475569;">{message}</p>
-                            
+
                             <!-- Button CTA -->
                             <table width="100%" cellpadding="0" cellspacing="0">
                                 <tr>

@@ -45,6 +45,7 @@ select = [
     "UP", # pyupgrade
     "ARG001", # unused-function-argument
     "TID252", # relative-imports
+    "ANN401", # flake8-annotations: disallow dynamically typed expressions (Any)
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
@@ -62,3 +63,11 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pyright]
+typeCheckingMode = "strict"
+reportAny = "error"
+reportUnknownMemberType = "error"
+reportUnknownParameterType = "error"
+reportUnknownVariableType = "error"
+reportUnknownArgumentType = "error"

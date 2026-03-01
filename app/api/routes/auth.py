@@ -115,9 +115,7 @@ async def refresh_token(
 
 
 @router.post("/logout", response_model=Message, status_code=status.HTTP_200_OK)
-async def logout(
-    request: Request, response: Response, session: SessionDep
-) -> Message:
+async def logout(request: Request, response: Response, session: SessionDep) -> Message:
     """
     Clear refresh token cookie and invalidate token in the blacklist.
     """
@@ -182,7 +180,7 @@ async def verify_email(
     """
     try:
         return await verify_email_service(
-            request=request, session=session, token=body.token, lang=body.lang
+            request=request, session=session, token=body.token
         )
     except HTTPException:
         raise

@@ -1,5 +1,3 @@
-from typing import Any
-
 from fastapi import APIRouter, HTTPException, Request
 
 from app.api.deps import CurrentUser, SessionDep
@@ -16,7 +14,7 @@ router = APIRouter()
 @router.get("/me", response_model=UserPublic)
 async def read_user_me(
     request: Request, session: SessionDep, current_user: CurrentUser
-) -> Any:
+) -> UserPublic:
     """
     Get current user.
     """
@@ -42,7 +40,7 @@ async def update_user_me(
     session: SessionDep,
     current_user: CurrentUser,
     user_in: UserUpdateMe,
-) -> Any:
+) -> UserPublic:
     """
     Update own user details.
     """
@@ -76,7 +74,7 @@ async def delete_user_me(
     session: SessionDep,
     current_user: CurrentUser,
     body: DeleteAccount,
-) -> Any:
+) -> Message:
     """
     Delete own user profile with password confirmation.
     """
