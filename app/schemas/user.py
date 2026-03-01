@@ -1,18 +1,18 @@
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.core.messages.error_message import ErrorMessages
 
 
-class SystemRole(str, Enum):
+class SystemRole(StrEnum):
     ADMIN = "admin"
     USER = "user"
 
 
-class Language(str, Enum):
+class Language(StrEnum):
     EN = "en"
     TR = "tr"
 

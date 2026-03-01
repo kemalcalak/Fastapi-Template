@@ -1,11 +1,11 @@
 import uuid
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
 
 
-class ActivityType(str, Enum):
+class ActivityType(StrEnum):
     """Types of activities that can be logged."""
 
     CREATE = "create"
@@ -19,14 +19,14 @@ class ActivityType(str, Enum):
     INVITE = "invite"
 
 
-class ResourceType(str, Enum):
+class ResourceType(StrEnum):
     """Types of resources that activities can be performed on."""
 
     USER = "user"
     AUTH = "auth"
 
 
-class ActivityStatus(str, Enum):
+class ActivityStatus(StrEnum):
     """Status of the activity."""
 
     SUCCESS = "success"
