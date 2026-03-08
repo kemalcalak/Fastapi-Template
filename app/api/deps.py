@@ -17,10 +17,7 @@ from app.repositories.user import get_user_by_id
 from app.schemas.token import TokenPayload
 from app.schemas.user import SystemRole
 
-# auto_error=False: cookie tabanlı auth kullanıldığında Bearer token isteğe bağlıdır
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False
-)
+reusable_oauth2 = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
