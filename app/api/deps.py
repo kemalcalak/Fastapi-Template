@@ -18,8 +18,7 @@ from app.schemas.token import TokenPayload
 from app.schemas.user import SystemRole
 
 reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login",
-    auto_error=False
+    tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False
 )
 
 

@@ -20,6 +20,21 @@ class AuthTokens(Token):
     message: str | None = None
 
 
+class CookieLoginResponse(BaseModel):
+    """Login response without access_token in body (token is in HttpOnly cookie)."""
+
+    token_type: str = "bearer"
+    user: UserPublic
+    message: str | None = None
+
+
+class CookieRefreshResponse(BaseModel):
+    """Refresh response without access_token in body (token is in HttpOnly cookie)."""
+
+    token_type: str = "bearer"
+    message: str | None = None
+
+
 # Contents of JWT token
 class TokenPayload(BaseModel):
     sub: str | None = None
