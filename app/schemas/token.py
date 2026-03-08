@@ -10,10 +10,6 @@ class Token(BaseModel):
     message: str | None = None
 
 
-class LoginResponse(Token):
-    user: UserPublic
-
-
 class AuthTokens(Token):
     refresh_token: str
     user: UserPublic
