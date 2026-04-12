@@ -4,11 +4,23 @@ from starlette.requests import Request
 
 from app.core.config import settings
 
+
+def _storage_uri() -> str:
+    """Return the slowapi storage backend.
+
+    Uses in-memory storage for local dev (no Redis required) and async-redis
+    for staging/production so limits are shared across API replicas.
+    """
+    if settings.ENVIRONMENT == "local":
+        return "memory://"
+    return f"async+{settings.REDIS_URL}"
+
+
 # Initialize rate limiter
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200/hour", "60/minute"],
-    storage_uri="memory://",  # Use memory storage (for Redis: redis://localhost:6379)
+    storage_uri=_storage_uri(),
     enabled=settings.ENVIRONMENT != "local",  # Disable in development
 )
 

@@ -3,20 +3,25 @@ import uuid
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.email import check_mx_record, is_disposable_email, send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.core.security import get_password_hash, verify_password
 from app.models.user import User
+from app.repositories.token_blacklist import add_token_to_blacklist
 from app.repositories.user import (
     create_user,
+    deactivate_user,
     get_user_by_email,
     get_user_by_id,
     get_users_with_count,
-    soft_delete_user,
+    reactivate_user,
     update_user,
 )
 from app.schemas.msg import Message
 from app.schemas.user import (
+    Language,
     UserCreate,
     UserPublic,
     UsersPublic,
@@ -25,15 +30,28 @@ from app.schemas.user import (
 )
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_activity_service import log_activity
+from app.utils.email_templates import generate_account_deactivation_email
 
 
-async def delete_own_account_service(
-    request: Request, session: AsyncSession, current_user: User, password: str
+async def deactivate_own_account_service(
+    request: Request,
+    session: AsyncSession,
+    current_user: User,
+    password: str,
+    lang: Language = Language.EN,
 ) -> Message:
+    """Deactivate the current user's account and schedule deletion.
+
+    Verifies the password, starts the grace window configured by
+    ``ACCOUNT_DELETION_GRACE_DAYS``, blacklists the caller's active JWTs so
+    the session cannot be resumed, and logs an audit entry.
     """
-    Securely delete own account with password confirmation.
-    Uses soft delete.
-    """
+    if current_user.deletion_scheduled_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.ACCOUNT_ALREADY_DEACTIVATED,
+        )
+
     if not verify_password(password, current_user.hashed_password):
         await log_activity(
             session=session,
@@ -48,39 +66,73 @@ async def delete_own_account_service(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ErrorMessages.INVALID_PASSWORD,
         )
-    await soft_delete_user(session, current_user)
+
+    await deactivate_user(
+        session, current_user, grace_days=settings.ACCOUNT_DELETION_GRACE_DAYS
+    )
+
+    # Invalidate the caller's active tokens so the session can't be replayed.
+    access_token = request.cookies.get("access_token")
+    refresh_token = request.cookies.get("refresh_token")
+    if access_token:
+        await add_token_to_blacklist(access_token)
+    if refresh_token:
+        await add_token_to_blacklist(refresh_token)
 
     await log_activity(
         session=session,
         user_id=current_user.id,
-        activity_type=ActivityType.DELETE,
+        activity_type=ActivityType.UPDATE,
         resource_type=ResourceType.USER,
         resource_id=current_user.id,
-        details={"deleted_by": "self"},
+        details={
+            "action": "account_deactivated",
+            "grace_days": settings.ACCOUNT_DELETION_GRACE_DAYS,
+        },
         request=request,
     )
 
-    return Message(success=True, message=SuccessMessages.USER_DELETED)
+    reactivate_link = f"{settings.FRONTEND_HOST}/{lang}/account-deactivated"
+    email_data = generate_account_deactivation_email(
+        reactivate_link=reactivate_link,
+        grace_days=settings.ACCOUNT_DELETION_GRACE_DAYS,
+        project_name=settings.PROJECT_NAME,
+        lang=lang,
+    )
+    await send_email(
+        to=current_user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(current_user.id),
+    )
+
+    return Message(success=True, message=SuccessMessages.ACCOUNT_DEACTIVATED)
 
 
-async def delete_user_service(
-    request: Request, session: AsyncSession, current_user: User, user_id: uuid.UUID
+async def reactivate_own_account_service(
+    request: Request, session: AsyncSession, current_user: User
 ) -> Message:
-    """Admin-level soft delete for any user."""
-    db_user = await get_user_service(session, user_id)
-    await soft_delete_user(session, db_user)
+    """Cancel a pending deletion and re-enable the account."""
+    if current_user.deletion_scheduled_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.ACCOUNT_NOT_DEACTIVATED,
+        )
+
+    await reactivate_user(session, current_user)
 
     await log_activity(
         session=session,
         user_id=current_user.id,
-        activity_type=ActivityType.DELETE,
+        activity_type=ActivityType.UPDATE,
         resource_type=ResourceType.USER,
-        resource_id=db_user.id,
-        details={"deleted_user_email": db_user.email},
+        resource_id=current_user.id,
+        details={"action": "account_reactivated"},
         request=request,
     )
 
-    return Message(success=True, message=SuccessMessages.USER_DELETED)
+    return Message(success=True, message=SuccessMessages.ACCOUNT_REACTIVATED)
 
 
 async def create_user_service(
@@ -93,7 +145,20 @@ async def create_user_service(
     Business logic to create a new user.
     Checks for email availability and hashes the password.
     """
-    # 1. Guard check: Email must be unique
+    # 1. Reject disposable / unreachable email domains (same checks the
+    # reset/verify flows use so attackers can't register with throwaway mail).
+    if await is_disposable_email(user_create.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.DISPOSABLE_EMAIL_NOT_ALLOWED,
+        )
+    if not await check_mx_record(user_create.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.INVALID_EMAIL_DOMAIN,
+        )
+
+    # 2. Guard check: Email must be unique
     existing_user = await get_user_by_email(session, email=user_create.email)
     if existing_user:
         if current_user and request:

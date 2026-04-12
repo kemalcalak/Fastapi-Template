@@ -19,3 +19,10 @@ class ErrorMessages:
     INVALID_VERIFICATION_TOKEN = "error.user.invalid_verification_token"
     REFRESH_TOKEN_MISSING = "error.auth.refresh_token_missing"
     INVALID_CURRENT_PASSWORD = "error.auth.invalid_current_password"
+    INVALID_EMAIL_DOMAIN = "error.user.invalid_email_domain"
+    DISPOSABLE_EMAIL_NOT_ALLOWED = "error.user.disposable_email_not_allowed"
+
+    # Account deactivation / grace-period deletion
+    ACCOUNT_ALREADY_DEACTIVATED = "error.account.already_deactivated"
+    ACCOUNT_NOT_DEACTIVATED = "error.account.not_deactivated"
+    ACCOUNT_DELETION_EXPIRED = "error.account.deletion_expired"

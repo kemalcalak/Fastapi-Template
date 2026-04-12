@@ -14,76 +14,83 @@ logger = logging.getLogger(__name__)
 # Cache for disposable domains using Redis
 redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 DISPOSABLE_CACHE_KEY = "disposable_domains_cache"
-DISPOSABLE_CACHE_TTL = 86400  # 24 hours
+DISPOSABLE_CACHE_TTL = settings.DISPOSABLE_EMAIL_CACHE_TTL_SECONDS
 _DISPOSABLE_LOCK = asyncio.Lock()
 
 
 def _get_domain(email: str) -> str | None:
+    """Return the lowercase domain part of ``email`` or ``None`` if malformed."""
     parts = email.rsplit("@", 1)
     return parts[1].lower() if len(parts) == 2 else None
 
 
 async def check_mx_record(email: str) -> bool:
+    """Return True when the email domain publishes at least one MX record.
+
+    The DNS lookup is intentionally forgiving — any resolver error is
+    treated as "no valid MX" rather than propagated, so a transient
+    network blip cannot block registration for every caller.
     """
-    Check if the domain of the email has valid MX records.
-    Returns True if valid, False if not.
-    """
+    domain = _get_domain(email)
+    if domain is None:
+        return False
+
+    def _resolve_mx() -> int:
+        """Resolve MX records synchronously; runs inside ``asyncio.to_thread``."""
+        records = dns.resolver.resolve(domain, "MX")
+        return len(records)
+
     try:
-        domain = _get_domain(email)
-        if domain is None:
-            return False
-
-        def _resolve_mx() -> int:
-            records = dns.resolver.resolve(domain, "MX")
-            return len(records)
-
-        # Run the synchronous DNS query in a separate thread
         count = await asyncio.to_thread(_resolve_mx)
-        return count > 0
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, Exception) as e:
+    except (
+        dns.resolver.NXDOMAIN,
+        dns.resolver.NoAnswer,
+        dns.resolver.NoNameservers,
+        dns.resolver.LifetimeTimeout,
+        dns.exception.DNSException,
+    ) as e:
         logger.warning(f"MX record check failed for {email}: {e}")
         return False
+    return count > 0
 
 
 async def is_disposable_email(email: str) -> bool:
-    """
-    Check if the email domain belongs to a disposable email provider via Redis cache.
-    Returns True if it's disposable, False otherwise.
-    """
-    try:
-        domain = _get_domain(email)
-        if domain is None:
-            return False
+    """Return True when the email domain matches a known disposable provider.
 
+    Uses a Redis set seeded from an upstream blocklist (lazy fetch on first
+    miss). Any Redis / network error falls open (treated as non-disposable)
+    so an outage cannot lock legitimate users out of registration.
+    """
+    domain = _get_domain(email)
+    if domain is None:
+        return False
+
+    try:
         async with _DISPOSABLE_LOCK:
-            # Check if domain exists in the Redis set
             is_member = await redis_client.sismember(DISPOSABLE_CACHE_KEY, domain)
 
             if not is_member and not await redis_client.exists(DISPOSABLE_CACHE_KEY):
-                # The key doesn't exist, we likely need to fetch the list
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
-                        "https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf",
+                        settings.DISPOSABLE_EMAIL_LIST_URL,
                         timeout=5.0,
                     )
-                    if response.status_code == 200:
-                        domains_list = response.text.strip().split("\n")
-                        if domains_list:
-                            # Add all domains to the Redis set
-                            await redis_client.sadd(DISPOSABLE_CACHE_KEY, *domains_list)
-                            await redis_client.expire(
-                                DISPOSABLE_CACHE_KEY, DISPOSABLE_CACHE_TTL
-                            )
-                            is_member = domain in domains_list
-                    else:
-                        logger.warning(
-                            f"Failed to fetch disposable domains, status code: {response.status_code}"
+                if response.status_code == 200:
+                    domains_list = response.text.strip().split("\n")
+                    if domains_list:
+                        await redis_client.sadd(DISPOSABLE_CACHE_KEY, *domains_list)
+                        await redis_client.expire(
+                            DISPOSABLE_CACHE_KEY, DISPOSABLE_CACHE_TTL
                         )
+                        is_member = domain in domains_list
+                else:
+                    logger.warning(
+                        f"Failed to fetch disposable domains, status code: {response.status_code}"
+                    )
 
         return bool(is_member)
-    except Exception as e:
+    except (aioredis.RedisError, httpx.HTTPError) as e:
         logger.error(f"Error checking disposable email for {email}: {e}")
-        # If Redis or network error, fail open
         return False
 
 

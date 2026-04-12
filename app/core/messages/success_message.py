@@ -1,6 +1,5 @@
 class SuccessMessages:
     # User Specific
-    USER_DELETED = "success.user.deleted"
     USER_CREATED = "success.user.created"
     USER_UPDATED = "success.user.updated"
     EMAIL_VERIFIED = "success.user.email_verified"
@@ -13,3 +12,7 @@ class SuccessMessages:
     PASSWORD_CHANGE_SUCCESS = "success.auth.password_change_success"
     LOGOUT_SUCCESS = "success.auth.logout_success"
     REGISTER_SUCCESS = "success.auth.register_success"
+
+    # Account deactivation / grace-period deletion
+    ACCOUNT_DEACTIVATED = "success.account.deactivated"
+    ACCOUNT_REACTIVATED = "success.account.reactivated"

@@ -80,6 +80,7 @@ class UpdatePassword(BaseModel):
 
 class DeleteAccount(BaseModel):
     password: str = Field(min_length=8, max_length=40)
+    lang: Language = Language.EN
 
 
 # Properties to return via API, id is always required
@@ -88,6 +89,8 @@ class UserPublic(UserBase):
     role: SystemRole
     created_at: datetime
     updated_at: datetime
+    deactivated_at: datetime | None = None
+    deletion_scheduled_at: datetime | None = None
 
 
 class UserUpdateResponse(BaseModel):

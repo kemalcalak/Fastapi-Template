@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSON
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 from app.core.db import Base
+from app.schemas.common import ActivityDetails
 from app.schemas.user_activity import ActivityStatus
 from app.utils import utc_now
 
@@ -26,7 +27,9 @@ class UserActivity(Base):
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("user.id"), index=True, nullable=False
+        ForeignKey("user.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
 
     # Enums stored as strings
@@ -37,7 +40,7 @@ class UserActivity(Base):
         PG_UUID(as_uuid=True), default=None, index=True
     )
 
-    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    details: Mapped[ActivityDetails] = mapped_column(JSON, default=dict, nullable=False)
 
     status: Mapped[str] = mapped_column(
         String, default=ActivityStatus.SUCCESS.value, nullable=False

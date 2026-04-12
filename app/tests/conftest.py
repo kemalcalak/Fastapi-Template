@@ -1,11 +1,13 @@
 from unittest.mock import AsyncMock, patch
 
+import fakeredis.aioredis as fakeredis
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app import models  # noqa: F401
 from app.api.deps import get_db
+from app.core import redis as redis_module
 from app.core.db import Base
 from app.main import app
 
@@ -23,6 +25,7 @@ TestingSessionLocal = async_sessionmaker(
 
 
 async def override_get_db():
+    """Yield a test-bound async DB session."""
     async with TestingSessionLocal() as session:
         yield session
 
@@ -32,9 +35,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def create_test_database():
-    """
-    Create a fresh database for each test.
-    """
+    """Create a fresh database for each test."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -42,23 +43,64 @@ async def create_test_database():
         await conn.run_sync(Base.metadata.drop_all)
 
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def fake_redis():
+    """Swap the real Redis client for an in-process fake during tests."""
+    client = fakeredis.FakeRedis(decode_responses=True)
+    redis_module.set_redis_for_testing(client)
+    try:
+        yield client
+    finally:
+        await client.flushall()
+        await client.aclose()
+        redis_module.set_redis_for_testing(None)
+
+
 @pytest_asyncio.fixture
 async def client() -> AsyncClient:
-    """
-    TestClient that can be used to make requests to the application.
-    """
+    """Async HTTP client wired to the FastAPI app."""
     from app.core.config import settings
 
+    transport = ASGITransport(app=app)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url=f"http://test{settings.API_V1_STR}"
+        transport=transport, base_url=f"http://test{settings.API_V1_STR}"
     ) as ac:
         yield ac
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def mock_email_send():
+    """Prevent real SMTP connections from any caller during tests.
+
+    Patches both the source (``app.core.email.send_email``) and the
+    re-export used by the auth service. Callers that import the function
+    directly still hit the mock.
     """
-    Mock the send_email function to avoid sending real emails during tests.
+    with (
+        patch("app.core.email.send_email", new_callable=AsyncMock) as core_mock,
+        patch("app.services.auth_service.send_email", new=core_mock),
+    ):
+        yield core_mock
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_email_validation():
+    """Bypass MX / disposable-domain lookups during tests.
+
+    Tests use invented domains like ``test.com`` that have no MX records,
+    and the register flow now rejects those by default. Patch at every
+    import site so both direct and re-exported callers hit the mock.
     """
-    with patch("app.services.auth_service.send_email", new_callable=AsyncMock) as mock:
-        yield mock
+    with (
+        patch("app.core.email.check_mx_record", new=AsyncMock(return_value=True)),
+        patch(
+            "app.services.user_service.check_mx_record",
+            new=AsyncMock(return_value=True),
+        ),
+        patch("app.core.email.is_disposable_email", new=AsyncMock(return_value=False)),
+        patch(
+            "app.services.user_service.is_disposable_email",
+            new=AsyncMock(return_value=False),
+        ),
+    ):
+        yield

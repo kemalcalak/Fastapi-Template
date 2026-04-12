@@ -30,12 +30,14 @@ services:
       db:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
     volumes:
       - ./app:/app/app # Mount source code for live reloading
       - ./alembic.ini:/app/alembic.ini # Mount alembic configuration
     env_file:
       - .env
-    environment:
+    environment: &backend-env
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
       - SECRET_KEY=${SECRET_KEY?Variable not set}
@@ -45,13 +47,34 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL:-}
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      # Container-internal hostnames override any localhost values in .env
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN:-}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_URL=redis://redis:6379/0
+      - ACCOUNT_DELETION_GRACE_DAYS=${ACCOUNT_DELETION_GRACE_DAYS:-30}
+      - DELETION_JOB_BATCH_SIZE=${DELETION_JOB_BATCH_SIZE:-100}
+      - DELETION_JOB_CRON_HOUR=${DELETION_JOB_CRON_HOUR:-3}
+      - DELETION_JOB_CRON_MINUTE=${DELETION_JOB_CRON_MINUTE:-0}
+
+  worker:
+    build:
+      context: .
+    restart: always
+    command: ["uv", "run", "arq", "app.worker.settings.WorkerSettings"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+    env_file:
+      - .env
+    environment: *backend-env
 
   redis:
     image: redis:7

@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,9 +20,11 @@ from app.api.main import api_router
 from app.core.config import settings
 from app.core.messages.error_message import ErrorMessages
 from app.core.rate_limit import limiter
+from app.core.redis import close_redis, init_redis
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
+    """Generate a stable operationId for OpenAPI clients."""
     return f"{route.tags[0]}-{route.name}"
 
 
@@ -27,10 +32,21 @@ if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
     sentry_sdk.init(dsn=str(settings.SENTRY_DSN), enable_tracing=True)
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Initialize and dispose shared resources (Redis) for the API process."""
+    await init_redis()
+    try:
+        yield
+    finally:
+        await close_redis()
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     generate_unique_id_function=custom_generate_unique_id,
+    lifespan=lifespan,
 )
 
 # Exception Handlers
@@ -74,8 +90,16 @@ async def origin_check_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-# Set all CORS enabled origins
+# Set all CORS enabled origins.
+# allow_credentials + "*" is unsafe: some browsers honour it and would let any
+# origin issue authenticated requests. Refuse that combination outright.
 if settings.all_cors_origins:
+    if "*" in settings.all_cors_origins:
+        raise RuntimeError(
+            "CORS misconfiguration: wildcard origin '*' cannot be combined "
+            "with credentialed requests. Set explicit origins in "
+            "BACKEND_CORS_ORIGINS / FRONTEND_HOST."
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.all_cors_origins,

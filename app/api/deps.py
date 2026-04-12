@@ -33,9 +33,11 @@ async def get_current_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     bearer_token: Annotated[str | None, Depends(reusable_oauth2)] = None,
 ) -> User:
-    """
-    Get current authenticated user from JWT token.
-    Cookie takes priority; falls back to Authorization Bearer header.
+    """Resolve the JWT to a User, allowing accounts in the deletion grace window.
+
+    This intentionally does NOT reject ``is_active=False`` users — that check
+    moved to ``get_current_active_user`` so deactivated users can still hit
+    ``/users/me`` and ``/users/me/reactivate`` during the grace period.
     """
     token = request.cookies.get("access_token") or bearer_token
     if not token:
@@ -46,15 +48,13 @@ async def get_current_user(
         )
 
     try:
-        # Check if token is blacklisted
-        if await is_token_blacklisted(db, token):
+        if await is_token_blacklisted(token):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ErrorMessages.INVALID_TOKEN,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Verify and decode token
         token_subject = verify_token(token)
         if token_subject is None:
             raise HTTPException(
@@ -63,7 +63,6 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Validate token payload
         token_data = TokenPayload(sub=token_subject)
     except (ValidationError, ValueError):
         raise HTTPException(
@@ -72,17 +71,10 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get user from database
     user = await get_user_by_id(db, user_id=uuid.UUID(token_data.sub))
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND
-        )
-
-    # Check if user is active
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=ErrorMessages.USER_INACTIVE
         )
 
     return user
@@ -91,14 +83,19 @@ async def get_current_user(
 def get_current_active_user(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
-    """Get current active user."""
+    """Require the caller's account to be active (not in deletion grace)."""
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.USER_INACTIVE,
+        )
     return current_user
 
 
 def get_current_superuser(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> User:
-    """Get current user if they are a system admin."""
+    """Require the caller to be an active system admin."""
     if current_user.role != SystemRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

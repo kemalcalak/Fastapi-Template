@@ -39,10 +39,7 @@ from app.utils.email_templates import (
 async def register_service(
     request: Request, session: AsyncSession, user_create: UserCreate
 ) -> UserPublic:
-    """
-    Handle public user registration.
-    Orchestrates user creation and any post-registration tasks.
-    """
+    """Register a user, audit the event, and send the verification email."""
     user = await create_user_service(
         request=request, session=session, user_create=user_create, current_user=None
     )
@@ -79,6 +76,12 @@ async def register_service(
     return UserPublic.model_validate(user)
 
 
+# Pre-computed bcrypt hash of a random string used to keep authentication
+# timing constant when the supplied email does not exist in the database.
+# Regenerating on module import is enough — the value itself is not sensitive.
+_DUMMY_PASSWORD_HASH = get_password_hash("unused-timing-safe-placeholder")
+
+
 async def authenticate(
     request: Request | None, session: AsyncSession, email: str, password: str
 ) -> User:
@@ -89,14 +92,13 @@ async def authenticate(
     """
     user = await get_user_by_email(session, email=email)
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorMessages.INVALID_CREDENTIALS,
-        )
+    # Always run verify_password so the response time does not leak whether
+    # the email exists (email enumeration guard).
+    hashed = user.hashed_password if user else _DUMMY_PASSWORD_HASH
+    password_ok = verify_password(password, hashed)
 
-    if not verify_password(password, user.hashed_password):
-        if request:
+    if not user or not password_ok:
+        if user and request:
             await log_activity(
                 session=session,
                 user_id=user.id,
@@ -111,21 +113,9 @@ async def authenticate(
             detail=ErrorMessages.INVALID_CREDENTIALS,
         )
 
-    if not user.is_active:
-        if request:
-            await log_activity(
-                session=session,
-                user_id=user.id,
-                activity_type=ActivityType.LOGIN,
-                resource_type=ResourceType.AUTH,
-                status=ActivityStatus.FAILURE,
-                details={"reason": "user_inactive", "email": email},
-                request=request,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ErrorMessages.USER_INACTIVE,
-        )
+    # Accounts in the deletion grace window (is_active=False + deletion_scheduled_at)
+    # are allowed to log in so the frontend can render the "cancel deletion" page.
+    # The ``get_current_active_user`` dep still blocks them from regular endpoints.
 
     if not getattr(user, "is_verified", True):
         raise HTTPException(
@@ -188,7 +178,7 @@ async def refresh_token_service(
         )
 
     # Check if the token is revoked
-    if await is_token_blacklisted(session, refresh_token):
+    if await is_token_blacklisted(refresh_token):
         if request:
             await log_activity(
                 session=session,
@@ -204,9 +194,11 @@ async def refresh_token_service(
             detail=ErrorMessages.INVALID_TOKEN,
         )
 
-    # Check if user exists and is active
+    # Refresh works for users in the deletion grace window too (so they stay
+    # on the cancel-deletion page without repeatedly re-authenticating). Only
+    # hard-deleted users are blocked.
     user = await get_user_by_id(session, parsed_user_id)
-    if not user or not user.is_active or user.is_deleted:
+    if not user:
         if request:
             await log_activity(
                 session=session,
@@ -214,7 +206,7 @@ async def refresh_token_service(
                 activity_type=ActivityType.LOGIN,
                 resource_type=ResourceType.AUTH,
                 status=ActivityStatus.FAILURE,
-                details={"reason": "user_inactive_or_deleted"},
+                details={"reason": "user_deleted"},
                 request=request,
             )
         raise HTTPException(
@@ -235,9 +227,9 @@ async def logout_service(
     """
     if refresh_token:
         # Check if it was already blacklisted to avoid unique constraint errors
-        is_blacklisted = await is_token_blacklisted(session, refresh_token)
+        is_blacklisted = await is_token_blacklisted(refresh_token)
         if not is_blacklisted:
-            await add_token_to_blacklist(session, refresh_token)
+            await add_token_to_blacklist(refresh_token)
 
         # Log success if possible
         user_id = verify_refresh_token(refresh_token)
@@ -259,7 +251,7 @@ async def verify_email_service(
     request: Request, session: AsyncSession, token: str
 ) -> Message:
     # Check if token is blacklisted
-    if await is_token_blacklisted(session, token):
+    if await is_token_blacklisted(token):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorMessages.INVALID_TOKEN,
@@ -285,7 +277,7 @@ async def verify_email_service(
     await update_user(session, user, {"is_verified": True})
 
     # Blacklist the token after successful use
-    await add_token_to_blacklist(session, token)
+    await add_token_to_blacklist(token)
 
     await log_activity(
         session=session,
@@ -305,7 +297,7 @@ async def recover_password_service(
     user = await get_user_by_email(session, email)
 
     # We always return success so as not to leak emails
-    if not user or not user.is_active or user.is_deleted:
+    if not user or not user.is_active:
         return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SENT)
 
     token = create_password_reset_token(email)
@@ -341,7 +333,7 @@ async def reset_password_service(
     request: Request, session: AsyncSession, token: str, new_password: str
 ) -> Message:
     # Check if token is blacklisted
-    if await is_token_blacklisted(session, token):
+    if await is_token_blacklisted(token):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorMessages.INVALID_TOKEN,
@@ -355,7 +347,7 @@ async def reset_password_service(
         )
 
     user = await get_user_by_email(session, email)
-    if not user or not user.is_active or user.is_deleted:
+    if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ErrorMessages.USER_NOT_FOUND,
@@ -366,7 +358,7 @@ async def reset_password_service(
     await update_user(session, user, {"hashed_password": hashed_password})
 
     # Blacklist the token after successful use
-    await add_token_to_blacklist(session, token)
+    await add_token_to_blacklist(token)
 
     await log_activity(
         session=session,
@@ -386,7 +378,7 @@ async def resend_verification_service(
     user = await get_user_by_email(session, email)
 
     # We always return success so as not to leak emails
-    if not user or not user.is_active or user.is_deleted:
+    if not user or not user.is_active:
         return Message(success=True, message=SuccessMessages.VERIFICATION_EMAIL_SENT)
 
     if getattr(user, "is_verified", False):
