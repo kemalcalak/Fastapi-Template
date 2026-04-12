@@ -13,3 +13,7 @@ class SuccessMessages:
     PASSWORD_CHANGE_SUCCESS = "success.auth.password_change_success"
     LOGOUT_SUCCESS = "success.auth.logout_success"
     REGISTER_SUCCESS = "success.auth.register_success"
+
+    # Account deactivation / grace-period deletion
+    ACCOUNT_DEACTIVATED = "success.account.deactivated"
+    ACCOUNT_REACTIVATED = "success.account.reactivated"

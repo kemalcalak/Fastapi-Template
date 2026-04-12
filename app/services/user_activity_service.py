@@ -1,11 +1,11 @@
 import uuid
-from typing import Any
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user_activity import UserActivity
 from app.repositories.user_activity import create_user_activity
+from app.schemas.common import ActivityDetails
 from app.schemas.user_activity import (
     ActivityStatus,
     ActivityType,
@@ -19,7 +19,7 @@ async def log_activity(
     user_id: uuid.UUID,
     activity_type: ActivityType,
     resource_type: ResourceType,
-    details: dict[str, Any] | None = None,
+    details: ActivityDetails | None = None,
     resource_id: uuid.UUID | None = None,
     status: ActivityStatus = ActivityStatus.SUCCESS,
     request: Request | None = None,
