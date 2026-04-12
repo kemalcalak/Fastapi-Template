@@ -198,7 +198,7 @@ async def refresh_token_service(
     # on the cancel-deletion page without repeatedly re-authenticating). Only
     # hard-deleted users are blocked.
     user = await get_user_by_id(session, parsed_user_id)
-    if not user or user.is_deleted:
+    if not user:
         if request:
             await log_activity(
                 session=session,
@@ -297,7 +297,7 @@ async def recover_password_service(
     user = await get_user_by_email(session, email)
 
     # We always return success so as not to leak emails
-    if not user or not user.is_active or user.is_deleted:
+    if not user or not user.is_active:
         return Message(success=True, message=SuccessMessages.PASSWORD_RESET_SENT)
 
     token = create_password_reset_token(email)
@@ -347,7 +347,7 @@ async def reset_password_service(
         )
 
     user = await get_user_by_email(session, email)
-    if not user or not user.is_active or user.is_deleted:
+    if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ErrorMessages.USER_NOT_FOUND,
@@ -378,7 +378,7 @@ async def resend_verification_service(
     user = await get_user_by_email(session, email)
 
     # We always return success so as not to leak emails
-    if not user or not user.is_active or user.is_deleted:
+    if not user or not user.is_active:
         return Message(success=True, message=SuccessMessages.VERIFICATION_EMAIL_SENT)
 
     if getattr(user, "is_verified", False):

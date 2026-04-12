@@ -80,6 +80,7 @@ class UpdatePassword(BaseModel):
 
 class DeleteAccount(BaseModel):
     password: str = Field(min_length=8, max_length=40)
+    lang: Language = Language.EN
 
 
 # Properties to return via API, id is always required

@@ -23,7 +23,6 @@ async def _make_user(
     email: str,
     *,
     scheduled_at=None,
-    is_deleted: bool = False,
 ) -> User:
     """Insert a user with a given deletion schedule for test setup."""
     async with TestingSessionLocal() as session:
@@ -32,7 +31,6 @@ async def _make_user(
             hashed_password=get_password_hash("password123"),
             is_active=scheduled_at is None,
             is_verified=True,
-            is_deleted=is_deleted,
             deactivated_at=scheduled_at - timedelta(days=30) if scheduled_at else None,
             deletion_scheduled_at=scheduled_at,
         )

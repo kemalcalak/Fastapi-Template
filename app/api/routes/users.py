@@ -77,6 +77,7 @@ async def delete_user_me(
         session=session,
         current_user=current_user,
         password=body.password,
+        lang=body.lang,
     )
     response.delete_cookie(key="access_token", path="/")
     response.delete_cookie(

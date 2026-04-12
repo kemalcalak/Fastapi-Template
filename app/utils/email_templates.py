@@ -105,6 +105,140 @@ def generate_password_reset_email(
     return {"subject": subject, "html": html, "plain_text": plain_text}
 
 
+def generate_account_deactivation_email(
+    reactivate_link: str,
+    grace_days: int,
+    project_name: str,
+    lang: str = Language.EN,
+) -> dict[str, str]:
+    """Generate subject, HTML, and plain text for account deactivation notice."""
+    if lang == Language.TR:
+        subject = "Hesabınız Devre Dışı Bırakıldı"
+        greeting = "Merhaba,"
+        message = (
+            f"Hesabınızı silme isteğiniz alındı. Hesabınız devre dışı bırakıldı ve "
+            f"{grace_days} gün sonra kalıcı olarak silinecek."
+        )
+        cancel_text = (
+            "Fikrinizi değiştirdiyseniz, bu süre içinde giriş yaparak silme "
+            "işlemini iptal edebilirsiniz."
+        )
+        btn_text = "Silme İşlemini İptal Et"
+        link_issue_text = "Buton çalışmıyor mu? Bu bağlantıyı tarayıcınıza kopyalayın:"
+        disclaimer = (
+            "Bu isteği siz yapmadıysanız, lütfen hemen giriş yapıp parolanızı "
+            "değiştirin ve silme işlemini iptal edin."
+        )
+        footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
+        plain_text = (
+            f"Hesabınız devre dışı bırakıldı ve {grace_days} gün sonra silinecek. "
+            f"İptal etmek için: {reactivate_link}"
+        )
+    else:
+        subject = "Your Account Has Been Deactivated"
+        greeting = "Hi there,"
+        message = (
+            f"We've received your account deletion request. Your account is now "
+            f"deactivated and will be permanently deleted in {grace_days} days."
+        )
+        cancel_text = (
+            "Changed your mind? You can cancel the deletion anytime within this "
+            "window by logging back in."
+        )
+        btn_text = "Cancel Deletion"
+        link_issue_text = (
+            "Button not working? Copy and paste this link into your browser:"
+        )
+        disclaimer = (
+            "If you didn't request this, please log in immediately, change your "
+            "password, and cancel the deletion."
+        )
+        footer_text = f"&copy; {project_name}. All rights reserved."
+        plain_text = (
+            f"Your account has been deactivated and will be deleted in "
+            f"{grace_days} days. To cancel: {reactivate_link}"
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{subject}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+        @media only screen and (max-width: 620px) {{
+            .wrapper {{ padding: 20px !important; }}
+            .container {{ width: 100% !important; border-radius: 12px !important; overflow: hidden; }}
+            .content {{ padding: 32px 24px !important; }}
+            .header {{ padding: 32px 24px !important; }}
+        }}
+    </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f8fafc;-webkit-font-smoothing:antialiased;">
+    <table class="wrapper" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;padding:48px 0;">
+        <tr>
+            <td align="center">
+                <table class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td class="header" style="background-color:#ffffff;padding:40px 48px;border-bottom:1px solid #f1f5f9;text-align:center;">
+                            <div style="display:inline-block;padding:12px;background-color:#fef2f2;border-radius:12px;margin-bottom:16px;">
+                                <span style="font-size:32px;">⚠️</span>
+                            </div>
+                            <h1 style="margin:0;font-size:24px;font-weight:700;color:#1e293b;letter-spacing:-0.5px;">{project_name}</h1>
+                        </td>
+                    </tr>
+                    <!-- Main Body -->
+                    <tr>
+                        <td class="content" style="padding:40px 48px;">
+                            <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#0f172a;">{greeting}</p>
+                            <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#475569;">{message}</p>
+                            <p style="margin:0 0 32px;font-size:16px;line-height:1.6;color:#475569;">{cancel_text}</p>
+
+                            <!-- Button CTA -->
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{reactivate_link}" style="display:inline-block;background-color:#ef4444;color:#ffffff;text-decoration:none;padding:14px 40px;border-radius:10px;font-size:16px;font-weight:600;box-shadow:0 4px 6px -1px rgba(239,68,68,0.2);">
+                                            {btn_text}
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <div style="margin:40px 0;border-top:1px solid #f1f5f9;"></div>
+
+                            <!-- Text Link Issue -->
+                            <p style="margin:0 0 12px;font-size:14px;color:#64748b;">{link_issue_text}</p>
+                            <p style="margin:0 0 32px;font-size:13px;word-break:break-all;line-height:1.5;">
+                                <a href="{reactivate_link}" style="color:#ef4444;text-decoration:underline;">{reactivate_link}</a>
+                            </p>
+
+                            <div style="padding:20px;background-color:#fef2f2;border-radius:12px;border-left:4px solid #fca5a5;">
+                                <p style="margin:0;font-size:13px;line-height:1.6;color:#991b1b;font-style:italic;">{disclaimer}</p>
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:32px 48px;background-color:#f8fafc;text-align:center;border-top:1px solid #e2e8f0;">
+                            <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">{project_name}</p>
+                            <p style="margin:0;font-size:12px;color:#94a3b8;">{footer_text}</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
+
+    return {"subject": subject, "html": html, "plain_text": plain_text}
+
+
 def generate_email_verification_email(
     verify_link: str, project_name: str, lang: str = Language.EN
 ) -> dict[str, str]:

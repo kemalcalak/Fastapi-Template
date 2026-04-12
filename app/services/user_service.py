@@ -4,7 +4,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.email import check_mx_record, is_disposable_email
+from app.core.email import check_mx_record, is_disposable_email, send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.core.security import get_password_hash, verify_password
@@ -17,11 +17,11 @@ from app.repositories.user import (
     get_user_by_id,
     get_users_with_count,
     reactivate_user,
-    soft_delete_user,
     update_user,
 )
 from app.schemas.msg import Message
 from app.schemas.user import (
+    Language,
     UserCreate,
     UserPublic,
     UsersPublic,
@@ -30,10 +30,15 @@ from app.schemas.user import (
 )
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_activity_service import log_activity
+from app.utils.email_templates import generate_account_deactivation_email
 
 
 async def deactivate_own_account_service(
-    request: Request, session: AsyncSession, current_user: User, password: str
+    request: Request,
+    session: AsyncSession,
+    current_user: User,
+    password: str,
+    lang: Language = Language.EN,
 ) -> Message:
     """Deactivate the current user's account and schedule deletion.
 
@@ -87,6 +92,21 @@ async def deactivate_own_account_service(
         request=request,
     )
 
+    reactivate_link = f"{settings.FRONTEND_HOST}/{lang}/account-deactivated"
+    email_data = generate_account_deactivation_email(
+        reactivate_link=reactivate_link,
+        grace_days=settings.ACCOUNT_DELETION_GRACE_DAYS,
+        project_name=settings.PROJECT_NAME,
+        lang=lang,
+    )
+    await send_email(
+        to=current_user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(current_user.id),
+    )
+
     return Message(success=True, message=SuccessMessages.ACCOUNT_DEACTIVATED)
 
 
@@ -113,26 +133,6 @@ async def reactivate_own_account_service(
     )
 
     return Message(success=True, message=SuccessMessages.ACCOUNT_REACTIVATED)
-
-
-async def delete_user_service(
-    request: Request, session: AsyncSession, current_user: User, user_id: uuid.UUID
-) -> Message:
-    """Admin-level soft delete for any user."""
-    db_user = await get_user_service(session, user_id)
-    await soft_delete_user(session, db_user)
-
-    await log_activity(
-        session=session,
-        user_id=current_user.id,
-        activity_type=ActivityType.DELETE,
-        resource_type=ResourceType.USER,
-        resource_id=db_user.id,
-        details={"deleted_user_email": db_user.email},
-        request=request,
-    )
-
-    return Message(success=True, message=SuccessMessages.USER_DELETED)
 
 
 async def create_user_service(

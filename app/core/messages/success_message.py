@@ -1,6 +1,5 @@
 class SuccessMessages:
     # User Specific
-    USER_DELETED = "success.user.deleted"
     USER_CREATED = "success.user.created"
     USER_UPDATED = "success.user.updated"
     EMAIL_VERIFIED = "success.user.email_verified"

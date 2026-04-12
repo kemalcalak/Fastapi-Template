@@ -119,7 +119,6 @@ async def test_delete_user_me_schedules_deletion(auth_client: AsyncClient):
         )
         user = result.scalars().one()
         assert user.is_active is False
-        assert user.is_deleted is False
         assert user.deactivated_at is not None
         assert user.deletion_scheduled_at is not None
         delta = user.deletion_scheduled_at - user.deactivated_at

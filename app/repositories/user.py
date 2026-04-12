@@ -10,18 +10,13 @@ from app.utils import utc_now
 
 
 async def get_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | None:
-    """Get a single user by their UUID. Excludes deleted users."""
-    user = await session.get(User, user_id)
-    if user and user.is_deleted:
-        return None
-    return user
+    """Get a single user by their UUID."""
+    return await session.get(User, user_id)
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
-    """Get a single user by their email address. Excludes deleted users."""
-    statement = (
-        select(User).where(User.email == email).where(User.is_deleted.is_(False))
-    )
+    """Get a single user by their email address."""
+    statement = select(User).where(User.email == email)
     result = await session.execute(statement)
     return result.scalars().first()
 
@@ -29,16 +24,12 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
 async def get_users_with_count(
     session: AsyncSession, skip: int = 0, limit: int = 100
 ) -> tuple[Sequence[User], int]:
-    """Get paginated users and total count. Excludes deleted users."""
-    count_statement = (
-        select(func.count()).select_from(User).where(User.is_deleted.is_(False))
-    )
+    """Get paginated users and total count."""
+    count_statement = select(func.count()).select_from(User)
     count_result = await session.execute(count_statement)
     count = count_result.scalar_one()
 
-    users_statement = (
-        select(User).where(User.is_deleted.is_(False)).offset(skip).limit(limit)
-    )
+    users_statement = select(User).offset(skip).limit(limit)
     users_result = await session.execute(users_statement)
     users = users_result.scalars().all()
     return users, count
@@ -60,15 +51,6 @@ async def update_user(session: AsyncSession, db_user: User, update_data: dict) -
     await session.commit()
     await session.refresh(db_user)
     return db_user
-
-
-async def soft_delete_user(session: AsyncSession, user: User) -> None:
-    """Mark a user as deleted without physical removal."""
-    user.is_deleted = True
-    user.deleted_at = utc_now()
-    user.is_active = False
-    session.add(user)
-    await session.commit()
 
 
 async def deactivate_user(session: AsyncSession, user: User, grace_days: int) -> User:
@@ -120,7 +102,7 @@ async def get_users_due_for_deletion(
     statement = (
         select(User)
         .where(
-            User.is_deleted.is_(False),
+            User.is_active.is_(False),
             User.deletion_scheduled_at.is_not(None),
             User.deletion_scheduled_at <= now,
         )
