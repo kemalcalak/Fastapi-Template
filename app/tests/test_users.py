@@ -85,8 +85,8 @@ async def test_update_user_me(auth_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_delete_user_me(auth_client: AsyncClient):
-    # Attempt delete with wrong password
+async def test_delete_user_me_wrong_password_rejected(auth_client: AsyncClient):
+    """Wrong password must not start the grace window."""
     response = await auth_client.request(
         "DELETE",
         url="/users/me",
@@ -94,7 +94,18 @@ async def test_delete_user_me(auth_client: AsyncClient):
     )
     assert response.status_code == 401
 
-    # Attempt delete with correct password
+
+@pytest.mark.asyncio
+async def test_delete_user_me_schedules_deletion(auth_client: AsyncClient):
+    """Correct password deactivates the account and schedules deletion."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.core.config import settings
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
     response = await auth_client.request(
         "DELETE",
         url="/users/me",
@@ -102,5 +113,109 @@ async def test_delete_user_me(auth_client: AsyncClient):
     )
     assert response.status_code == 200
 
+    async with TestingSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == "user_test@test.com")
+        )
+        user = result.scalars().one()
+        assert user.is_active is False
+        assert user.is_deleted is False
+        assert user.deactivated_at is not None
+        assert user.deletion_scheduled_at is not None
+        delta = user.deletion_scheduled_at - user.deactivated_at
+        # Allow 1 second skew between repository timestamps.
+        assert abs(
+            delta - timedelta(days=settings.ACCOUNT_DELETION_GRACE_DAYS)
+        ) < timedelta(seconds=2)
+
+
+@pytest.mark.asyncio
+async def test_delete_user_me_twice_returns_400(auth_client: AsyncClient):
+    """Second deactivate attempt while already pending must fail fast."""
+    first = await auth_client.request(
+        "DELETE", url="/users/me", json={"password": "password123"}
+    )
+    assert first.status_code == 200
+
+    # After deactivate, cookies are cleared by the route. Re-login to get
+    # fresh credentials — deactivated users are allowed to log back in.
+    await auth_client.post(
+        "/auth/login",
+        data={"username": "user_test@test.com", "password": "password123"},
+    )
+
+    second = await auth_client.request(
+        "DELETE", url="/users/me", json={"password": "password123"}
+    )
+    assert second.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_deactivated_user_blocked_from_update(auth_client: AsyncClient):
+    """PATCH /users/me must reject deactivated callers."""
+    await auth_client.request(
+        "DELETE", url="/users/me", json={"password": "password123"}
+    )
+    # Re-login so cookies are present again.
+    await auth_client.post(
+        "/auth/login",
+        data={"username": "user_test@test.com", "password": "password123"},
+    )
+
+    response = await auth_client.patch("/users/me", json={"first_name": "Hacked"})
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reactivate_cancels_deletion(auth_client: AsyncClient):
+    """Reactivate endpoint restores the account inside the grace window."""
+    from sqlalchemy import select
+
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
+    await auth_client.request(
+        "DELETE", url="/users/me", json={"password": "password123"}
+    )
+    await auth_client.post(
+        "/auth/login",
+        data={"username": "user_test@test.com", "password": "password123"},
+    )
+
+    response = await auth_client.post("/users/me/reactivate")
+    assert response.status_code == 200
+
+    async with TestingSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == "user_test@test.com")
+        )
+        user = result.scalars().one()
+        assert user.is_active is True
+        assert user.deactivated_at is None
+        assert user.deletion_scheduled_at is None
+
+
+@pytest.mark.asyncio
+async def test_reactivate_on_active_account_returns_400(auth_client: AsyncClient):
+    """Reactivating an account that isn't pending deletion must fail."""
+    response = await auth_client.post("/users/me/reactivate")
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_me_exposes_deletion_schedule(auth_client: AsyncClient):
+    """GET /users/me must include deletion_scheduled_at for deactivated users."""
+    await auth_client.request(
+        "DELETE", url="/users/me", json={"password": "password123"}
+    )
+    await auth_client.post(
+        "/auth/login",
+        data={"username": "user_test@test.com", "password": "password123"},
+    )
+
     response = await auth_client.get("/users/me")
-    assert response.status_code in (401, 403, 404)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_active"] is False
+    assert data["deactivated_at"] is not None
+    assert data["deletion_scheduled_at"] is not None
