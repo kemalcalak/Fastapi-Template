@@ -88,6 +88,8 @@ class UserPublic(UserBase):
     role: SystemRole
     created_at: datetime
     updated_at: datetime
+    deactivated_at: datetime | None = None
+    deletion_scheduled_at: datetime | None = None
 
 
 class UserUpdateResponse(BaseModel):

@@ -1,8 +1,9 @@
 import uuid
 from enum import StrEnum
-from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.common import ActivityDetails
 
 
 class ActivityType(StrEnum):
@@ -40,7 +41,7 @@ class UserActivityCreate(BaseModel):
     activity_type: ActivityType
     resource_type: ResourceType
     resource_id: uuid.UUID | None = None
-    details: dict[str, Any] = {}
+    details: ActivityDetails = Field(default_factory=dict)
     status: ActivityStatus = ActivityStatus.SUCCESS
     ip_address: str | None = None
     user_agent: str | None = None
