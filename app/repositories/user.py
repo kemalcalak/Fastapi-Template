@@ -1,7 +1,8 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -70,7 +71,89 @@ async def soft_delete_user(session: AsyncSession, user: User) -> None:
     await session.commit()
 
 
+async def deactivate_user(session: AsyncSession, user: User, grace_days: int) -> User:
+    """Start the deactivation grace window for a user.
+
+    Sets ``is_active=False`` and schedules hard deletion ``grace_days`` in the
+    future. The row is locked with ``SELECT ... FOR UPDATE`` to guard against
+    concurrent deactivate/reactivate requests on the same account.
+    """
+    locked = await session.execute(
+        select(User).where(User.id == user.id).with_for_update()
+    )
+    db_user = locked.scalars().one()
+
+    now = utc_now()
+    db_user.is_active = False
+    db_user.deactivated_at = now
+    db_user.deletion_scheduled_at = now + timedelta(days=grace_days)
+    session.add(db_user)
+    await session.commit()
+    await session.refresh(db_user)
+    return db_user
+
+
+async def reactivate_user(session: AsyncSession, user: User) -> User:
+    """Cancel a pending deletion and re-enable the account."""
+    locked = await session.execute(
+        select(User).where(User.id == user.id).with_for_update()
+    )
+    db_user = locked.scalars().one()
+
+    db_user.is_active = True
+    db_user.deactivated_at = None
+    db_user.deletion_scheduled_at = None
+    session.add(db_user)
+    await session.commit()
+    await session.refresh(db_user)
+    return db_user
+
+
+async def get_users_due_for_deletion(
+    session: AsyncSession, now: datetime, limit: int
+) -> Sequence[User]:
+    """Return users whose grace period has elapsed, locked for this worker.
+
+    Uses ``FOR UPDATE SKIP LOCKED`` so multiple workers can run the deletion
+    job in parallel without colliding on the same rows.
+    """
+    statement = (
+        select(User)
+        .where(
+            User.is_deleted.is_(False),
+            User.deletion_scheduled_at.is_not(None),
+            User.deletion_scheduled_at <= now,
+        )
+        .order_by(User.deletion_scheduled_at)
+        .with_for_update(skip_locked=True)
+        .limit(limit)
+    )
+    result = await session.execute(statement)
+    return result.scalars().all()
+
+
+async def hard_delete_user(session: AsyncSession, user: User) -> None:
+    """Permanently remove a user. Child rows cascade at the DB level."""
+    await session.delete(user)
+    await session.commit()
+
+
+async def bulk_hard_delete_users(
+    session: AsyncSession, user_ids: Sequence[uuid.UUID]
+) -> int:
+    """Delete many users in a single SQL statement.
+
+    Relies on the ``ON DELETE CASCADE`` foreign key from ``user_activity``
+    so no ORM-level fan-out is required. Returns the number of rows removed.
+    The caller owns the transaction boundary.
+    """
+    if not user_ids:
+        return 0
+    result = await session.execute(delete(User).where(User.id.in_(list(user_ids))))
+    return result.rowcount or 0
+
+
 async def delete_user(session: AsyncSession, db_user: User) -> None:
-    """Delete a user from the database."""
+    """Hard-delete a user and commit. Caller owns the detach before calling."""
     await session.delete(db_user)
     await session.commit()
