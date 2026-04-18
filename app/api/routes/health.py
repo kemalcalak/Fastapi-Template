@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import time
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
 from fastapi import APIRouter, Response, status
 from redis.exceptions import RedisError
@@ -35,8 +36,10 @@ def _elapsed_ms(started_at: float) -> float:
 async def _check_database(db: SessionDep) -> CheckResult:
     started_at = time.perf_counter()
     try:
-        await asyncio.wait_for(db.execute(text("SELECT 1")), timeout=_CHECK_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
+        await asyncio.wait_for(
+            db.execute(text("SELECT 1")), timeout=_CHECK_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
         logger.warning("Health check: database ping timed out")
         return CheckResult(status="timeout")
     except (SQLAlchemyError, OSError) as exc:
@@ -50,7 +53,7 @@ async def _check_redis() -> CheckResult:
     try:
         client = get_redis()
         await asyncio.wait_for(client.ping(), timeout=_CHECK_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Health check: redis ping timed out")
         return CheckResult(status="timeout")
     except (RedisError, RuntimeError, OSError) as exc:
