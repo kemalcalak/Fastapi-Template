@@ -28,7 +28,7 @@ services:
       - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health/live"]
-      interval: 15s
+      interval: 10m
       timeout: 3s
       retries: 3
       start_period: 40s
