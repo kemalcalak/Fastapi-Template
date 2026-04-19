@@ -79,6 +79,8 @@ async def mock_email_send():
     with (
         patch("app.core.email.send_email", new_callable=AsyncMock) as core_mock,
         patch("app.services.auth_service.send_email", new=core_mock),
+        patch("app.services.user_service.send_email", new=core_mock),
+        patch("app.services.admin.user_service.send_email", new=core_mock),
     ):
         yield core_mock
 
