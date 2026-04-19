@@ -16,3 +16,10 @@ class SuccessMessages:
     # Account deactivation / grace-period deletion
     ACCOUNT_DEACTIVATED = "success.account.deactivated"
     ACCOUNT_REACTIVATED = "success.account.reactivated"
+
+    # Admin
+    ADMIN_USER_UPDATED = "success.admin.user_updated"
+    ADMIN_USER_ACTIVATED = "success.admin.user_activated"
+    ADMIN_USER_DEACTIVATED = "success.admin.user_deactivated"
+    ADMIN_USER_DELETED = "success.admin.user_deleted"
+    ADMIN_PASSWORD_RESET_SENT = "success.admin.password_reset_sent"

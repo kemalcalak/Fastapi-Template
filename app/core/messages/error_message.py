@@ -26,3 +26,9 @@ class ErrorMessages:
     ACCOUNT_ALREADY_DEACTIVATED = "error.account.already_deactivated"
     ACCOUNT_NOT_DEACTIVATED = "error.account.not_deactivated"
     ACCOUNT_DELETION_EXPIRED = "error.account.deletion_expired"
+
+    # Admin
+    ADMIN_CANNOT_MODIFY_SELF = "error.admin.cannot_modify_self"
+    ADMIN_CANNOT_DELETE_SELF = "error.admin.cannot_delete_self"
+    ADMIN_CANNOT_DEMOTE_LAST_ADMIN = "error.admin.cannot_demote_last_admin"
+    ADMIN_CANNOT_DELETE_LAST_ADMIN = "error.admin.cannot_delete_last_admin"
