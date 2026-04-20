@@ -95,6 +95,34 @@ async def test_update_user_changes_profile(admin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_admin_cannot_change_user_email(admin_client: AsyncClient):
+    """An ``email`` key in the admin update payload is rejected by the schema.
+
+    Identity (login + recovery channel) is owned by the user; an admin must
+    never be able to rewrite it. ``extra=forbid`` on AdminUserUpdate turns the
+    field into a 422 so it can't be dropped silently.
+    """
+    await register_and_verify(admin_client, "identity@test.com")
+    user_id = await get_user_id("identity@test.com")
+
+    response = await admin_client.patch(
+        f"/admin/users/{user_id}",
+        json={"email": "stolen@test.com"},
+    )
+    assert response.status_code == 422
+
+    async with TestingSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == "identity@test.com")
+        )
+        assert result.scalars().one_or_none() is not None  # Email unchanged
+        result = await session.execute(
+            select(User).where(User.email == "stolen@test.com")
+        )
+        assert result.scalars().first() is None
+
+
+@pytest.mark.asyncio
 async def test_admin_cannot_demote_self(admin_client: AsyncClient):
     """An admin must not be able to change their own role."""
     admin_id = await get_user_id("admin@test.com")

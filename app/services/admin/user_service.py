@@ -15,7 +15,6 @@ from app.repositories.admin.user import (
 )
 from app.repositories.user import (
     delete_user,
-    get_user_by_email,
     get_user_by_id,
     suspend_user,
     unsuspend_user,
@@ -29,7 +28,7 @@ from app.schemas.admin import (
 )
 from app.schemas.msg import Message
 from app.schemas.user import Language, SystemRole
-from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
+from app.schemas.user_activity import ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
 from app.utils.email_templates import generate_password_reset_email
 
@@ -106,27 +105,6 @@ async def update_user_admin_service(
     target = await _load_target(session, user_id)
 
     update_data = payload.model_dump(exclude_unset=True)
-
-    if "email" in update_data and update_data["email"] != target.email:
-        existing = await get_user_by_email(session, email=update_data["email"])
-        if existing:
-            await log_activity(
-                session=session,
-                user_id=current_user.id,
-                activity_type=ActivityType.UPDATE,
-                resource_type=ResourceType.USER,
-                resource_id=target.id,
-                status=ActivityStatus.FAILURE,
-                details={
-                    "reason": "email_already_exists",
-                    "email": update_data["email"],
-                },
-                request=request,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=ErrorMessages.EMAIL_ALREADY_EXISTS,
-            )
 
     new_role = update_data.get("role")
     if new_role is not None and new_role != target.role:

@@ -9,14 +9,19 @@ from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 
 
 class AdminUserUpdate(BaseModel):
-    """Fields an admin may change on another user's account."""
+    """Fields an admin may change on another user's account.
+
+    Email is intentionally NOT in this schema: an admin must never be able to
+    rewrite a user's identity (login + recovery channel). With ``extra=forbid``
+    a stray ``email`` key in the request body returns 422 — defence in depth
+    on top of the FE form which doesn't expose the field at all.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=100)
-    email: EmailStr | None = Field(default=None, max_length=255)
     role: SystemRole | None = None
     is_active: bool | None = None
     is_verified: bool | None = None
