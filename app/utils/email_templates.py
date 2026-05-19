@@ -105,6 +105,100 @@ def generate_password_reset_email(
     return {"subject": subject, "html": html, "plain_text": plain_text}
 
 
+def generate_password_reset_notification_email(
+    project_name: str, lang: str = Language.EN
+) -> dict[str, str]:
+    """
+    Generate subject, HTML, and plain text for a password-reset notification.
+
+    Sent when the user's password was rotated server-side (e.g. by an admin
+    forced reset). Deliberately link-free: the user must recover access via
+    the standard 'Forgot Password' flow on the login page so the recovery
+    path stays auditable and tied to a user-initiated request.
+    """
+    if lang == Language.TR:
+        subject = "Şifreniz sıfırlandı"
+        greeting = "Merhaba,"
+        message = "Hesabınızın şifresi sıfırlandı. Yeniden erişim için giriş sayfasındaki 'Şifremi Unuttum' bağlantısını kullanarak yeni bir şifre belirleyebilirsiniz."
+        disclaimer = "Bu işlemi beklemiyorsanız lütfen destek ile derhal iletişime geçin."
+        footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
+        plain_text = (
+            "Hesabınızın şifresi sıfırlandı. Yeniden erişim için giriş "
+            "sayfasındaki 'Şifremi Unuttum' bağlantısını kullanın. "
+            "Bu işlemi beklemiyorsanız lütfen destek ile derhal iletişime geçin."
+        )
+    else:
+        subject = "Your password has been reset"
+        greeting = "Hi there,"
+        message = "Your account password has been reset. To regain access, please use the 'Forgot Password' link on the login page to set a new password."
+        disclaimer = "If you didn't expect this, please contact support immediately."
+        footer_text = f"&copy; {project_name}. All rights reserved."
+        plain_text = (
+            "Your account password has been reset. To regain access, please "
+            "use the 'Forgot Password' link on the login page. "
+            "If you didn't expect this, please contact support immediately."
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{subject}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+        @media only screen and (max-width: 620px) {{
+            .wrapper {{ padding: 20px !important; }}
+            .container {{ width: 100% !important; border-radius: 12px !important; overflow: hidden; }}
+            .content {{ padding: 32px 24px !important; }}
+            .header {{ padding: 32px 24px !important; }}
+        }}
+    </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f8fafc;-webkit-font-smoothing:antialiased;">
+    <table class="wrapper" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;padding:48px 0;">
+        <tr>
+            <td align="center">
+                <table class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td class="header" style="background-color:#ffffff;padding:40px 48px;border-bottom:1px solid #f1f5f9;text-align:center;">
+                            <div style="display:inline-block;padding:12px;background-color:#eff6ff;border-radius:12px;margin-bottom:16px;">
+                                <span style="font-size:32px;">🔐</span>
+                            </div>
+                            <h1 style="margin:0;font-size:24px;font-weight:700;color:#1e293b;letter-spacing:-0.5px;">{project_name}</h1>
+                        </td>
+                    </tr>
+                    <!-- Main Body -->
+                    <tr>
+                        <td class="content" style="padding:40px 48px;">
+                            <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#0f172a;">{greeting}</p>
+                            <p style="margin:0 0 32px;font-size:16px;line-height:1.6;color:#475569;">{message}</p>
+
+                            <div style="padding:20px;background-color:#f8fafc;border-radius:12px;border-left:4px solid #e2e8f0;">
+                                <p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;font-style:italic;">{disclaimer}</p>
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:32px 48px;background-color:#f8fafc;text-align:center;border-top:1px solid #e2e8f0;">
+                            <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">{project_name}</p>
+                            <p style="margin:0;font-size:12px;color:#94a3b8;">{footer_text}</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
+
+    return {"subject": subject, "html": html, "plain_text": plain_text}
+
+
 def generate_account_deactivation_email(
     reactivate_link: str,
     grace_days: int,
