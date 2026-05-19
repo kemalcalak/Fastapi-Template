@@ -1,7 +1,7 @@
 """End-to-end tests for /admin/users endpoints.
 
-Covers listing, detail, update, suspend/unsuspend, delete, password reset,
-self-protection, and the last-admin repository guard.
+Covers listing, detail, update, suspend/unsuspend, delete, admin password
+rotation, self-protection, and the last-admin repository guard.
 """
 
 import pytest
@@ -314,17 +314,57 @@ async def test_delete_non_last_admin_succeeds(admin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_reset_password_sends_email(admin_client: AsyncClient, mock_email_send):
-    """Reset endpoint must hit the email service with the target user's address."""
-    await register_and_verify(admin_client, "resetme@test.com")
-    user_id = await get_user_id("resetme@test.com")
+async def test_change_password_rotates_hash_and_notifies(
+    admin_client: AsyncClient, mock_email_send
+):
+    """Admin change-password rotates the hash to an unknown value and notifies the user.
+
+    The new password must never appear in the response, the email must be
+    link-free, and an activity row must be written so the rotation is auditable.
+    """
+    from app.models.user_activity import UserActivity
+
+    await register_and_verify(admin_client, "rotateme@test.com")
+    user_id = await get_user_id("rotateme@test.com")
+
+    async with TestingSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == "rotateme@test.com")
+        )
+        original_hash = result.scalars().one().hashed_password
 
     mock_email_send.reset_mock()
 
-    response = await admin_client.post(f"/admin/users/{user_id}/reset-password")
+    response = await admin_client.post(f"/admin/users/{user_id}/change-password")
     assert response.status_code == 200
-    assert response.json()["message"] == SuccessMessages.ADMIN_PASSWORD_RESET_SENT
 
+    body = response.json()
+    assert body["message"] == SuccessMessages.ADMIN_PASSWORD_CHANGED
+    # The new password must never leak to the caller, under any field name.
+    for leak_key in ("password", "new_password", "temporary_password"):
+        assert leak_key not in body
+
+    # Email reached the target — and is deliberately link-free.
     mock_email_send.assert_awaited_once()
     call_kwargs = mock_email_send.await_args.kwargs
-    assert call_kwargs["to"] == "resetme@test.com"
+    assert call_kwargs["to"] == "rotateme@test.com"
+    assert "href=" not in call_kwargs["body"]
+    assert "http" not in call_kwargs["plain_text"].lower()
+
+    # Hash was rotated; the old hash no longer matches.
+    async with TestingSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == "rotateme@test.com")
+        )
+        new_hash = result.scalars().one().hashed_password
+    assert new_hash != original_hash
+
+    # Audit trail recorded the rotation.
+    async with TestingSessionLocal() as session:
+        result = await session.execute(select(UserActivity))
+        actions = [
+            row.details.get("action")
+            for row in result.scalars().all()
+            if row.details
+        ]
+    assert "admin_reset_user_password" in actions
