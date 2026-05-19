@@ -1,3 +1,5 @@
+import secrets
+import string
 import uuid
 from datetime import datetime, timedelta
 
@@ -138,6 +140,26 @@ def get_password_hash(password: str) -> str:
     """
     salt = bcrypt.gensalt(prefix=b"2b")
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+def generate_secure_random_password(length: int = 32) -> str:
+    """
+    Generate a cryptographically-secure random password.
+
+    The result is never returned to the admin or the user — it is only used
+    to overwrite a user's bcrypt hash during an admin-forced rotation, after
+    which the user must recover access via the standard forgot-password
+    flow. ASCII letters + digits keep us well under bcrypt's 72-byte
+    truncation point at any reasonable length.
+
+    Args:
+        length: Number of characters in the returned password.
+
+    Returns:
+        Random ASCII string of the requested length.
+    """
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 # ---------------------------------------------------------------------------
