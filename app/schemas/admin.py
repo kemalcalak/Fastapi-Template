@@ -65,6 +65,34 @@ class AdminUserUpdateResponse(BaseModel):
     message: str
 
 
+class AdminFileListItem(BaseModel):
+    """Row shape returned by the admin file listing endpoint.
+
+    Exposes internal fields (``public_id``, ``uploaded_by_id``) that the public
+    ``FilePublic`` hides, since admins manage and audit raw uploads.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    url: str
+    public_id: str
+    content_type: str
+    size: int
+    filename: str | None = None
+    uploaded_by_id: uuid.UUID | None = None
+    created_at: datetime
+
+
+class AdminFileListResponse(BaseModel):
+    """Paginated admin file listing payload."""
+
+    data: list[AdminFileListItem]
+    total: int
+    skip: int
+    limit: int
+
+
 class AdminActivityItem(BaseModel):
     """Row shape returned by the admin activity log endpoint."""
 
