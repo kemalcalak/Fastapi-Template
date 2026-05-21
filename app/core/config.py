@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str | None = None
     CLOUDINARY_UPLOAD_FOLDER: str = "uploads"
 
+    # Reject uploads larger than this (bytes). Enforced in the upload service.
+    MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB
+
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Disposable-email blocklist source. Points to the community-maintained
