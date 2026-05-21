@@ -8,9 +8,8 @@ from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.models.file import File
 from app.models.user import User
-from app.repositories.admin.file import list_files_admin
+from app.repositories.admin.file import get_file_admin, list_files_admin
 from app.repositories.file import delete_file as delete_file_record
-from app.repositories.file import get_file
 from app.schemas.admin import AdminFileListItem, AdminFileListResponse
 from app.schemas.msg import Message
 from app.schemas.user_activity import ActivityType, ResourceType
@@ -23,7 +22,7 @@ async def list_files_admin_service(
     skip: int,
     limit: int,
     content_type: str | None,
-    uploaded_by: uuid.UUID | None,
+    uploader: str | None,
 ) -> AdminFileListResponse:
     """Return the filtered, paginated admin file list."""
     files, total = await list_files_admin(
@@ -31,7 +30,7 @@ async def list_files_admin_service(
         skip=skip,
         limit=limit,
         content_type=content_type,
-        uploaded_by=uploaded_by,
+        uploader=uploader,
     )
     return AdminFileListResponse(
         data=[AdminFileListItem.model_validate(f) for f in files],
@@ -42,8 +41,8 @@ async def list_files_admin_service(
 
 
 async def _load_file(session: AsyncSession, file_id: uuid.UUID) -> File:
-    """Fetch a file for admin access or raise 404."""
-    file = await get_file(session, file_id)
+    """Fetch a file (with its uploader) for admin access or raise 404."""
+    file = await get_file_admin(session, file_id)
     if file is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

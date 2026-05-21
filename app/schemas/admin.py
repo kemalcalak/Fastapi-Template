@@ -65,11 +65,24 @@ class AdminUserUpdateResponse(BaseModel):
     message: str
 
 
+class AdminFileUploader(BaseModel):
+    """Minimal uploader identity embedded in admin file rows."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+
+
 class AdminFileListItem(BaseModel):
     """Row shape returned by the admin file listing endpoint.
 
     Exposes internal fields (``public_id``, ``uploaded_by_id``) that the public
-    ``FilePublic`` hides, since admins manage and audit raw uploads.
+    ``FilePublic`` hides, since admins manage and audit raw uploads. Also embeds
+    the resolved uploader (``uploaded_by``) so the UI can show who uploaded each
+    file and search by name/email.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -81,6 +94,7 @@ class AdminFileListItem(BaseModel):
     size: int
     filename: str | None = None
     uploaded_by_id: uuid.UUID | None = None
+    uploaded_by: AdminFileUploader | None = None
     created_at: datetime
 
 

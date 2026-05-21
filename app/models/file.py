@@ -1,12 +1,16 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.utils import utc_now
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class File(Base):
@@ -38,4 +42,13 @@ class File(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    # Uploader identity, surfaced in the admin file views for auditing and
+    # name/email search. Loaded explicitly via ``selectinload`` in the admin
+    # file repository; the default lazy keeps the upload path and public avatar
+    # serialization single-query (they never read this relationship).
+    uploaded_by: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[uploaded_by_id],
     )

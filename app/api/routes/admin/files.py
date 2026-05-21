@@ -30,15 +30,19 @@ async def list_files(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     content_type: Annotated[str | None, Query(max_length=100)] = None,
-    uploaded_by: uuid.UUID | None = None,
+    uploader: Annotated[str | None, Query(max_length=255)] = None,
 ) -> AdminFileListResponse:
-    """List uploaded files with admin-only filters and pagination."""
+    """List uploaded files with admin-only filters and pagination.
+
+    ``uploader`` does a case-insensitive match on the uploader's first name,
+    last name, or email.
+    """
     return await list_files_admin_service(
         session=session,
         skip=skip,
         limit=limit,
         content_type=content_type,
-        uploaded_by=uploaded_by,
+        uploader=uploader,
     )
 
 

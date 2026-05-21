@@ -32,8 +32,11 @@ async def test_admin_list_files(admin_client: AsyncClient):
     body = response.json()
     assert body["total"] == 2
     assert len(body["data"]) == 2
-    assert "public_id" in body["data"][0]
-    assert "uploaded_by_id" in body["data"][0]
+    first = body["data"][0]
+    assert "public_id" in first
+    assert "uploaded_by_id" in first
+    # The resolved uploader is embedded so the UI can show who uploaded it.
+    assert first["uploaded_by"]["email"] == "admin@test.com"
 
 
 @pytest.mark.asyncio
@@ -45,6 +48,22 @@ async def test_admin_list_files_filter_content_type(admin_client: AsyncClient):
     assert match.json()["total"] == 1
 
     miss = await admin_client.get("/admin/files", params={"content_type": "image/gif"})
+    assert miss.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_list_files_filter_uploader(admin_client: AsyncClient):
+    """Filtering by uploader matches the uploader's name or email."""
+    await _upload(admin_client)
+
+    # The admin fixture uploads as admin@test.com (first_name "F").
+    by_email = await admin_client.get("/admin/files", params={"uploader": "admin@test"})
+    assert by_email.json()["total"] == 1
+
+    by_name = await admin_client.get("/admin/files", params={"uploader": "F"})
+    assert by_name.json()["total"] == 1
+
+    miss = await admin_client.get("/admin/files", params={"uploader": "nobody-xyz"})
     assert miss.json()["total"] == 0
 
 
