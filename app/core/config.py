@@ -66,6 +66,13 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     EMAILS_FROM_EMAIL: str = "noreply@example.com"
 
+    # Cloudinary (file/avatar storage). Optional at boot; uploads fail
+    # clearly at request time when these are unset.
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
+    CLOUDINARY_UPLOAD_FOLDER: str = "uploads"
+
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Disposable-email blocklist source. Points to the community-maintained

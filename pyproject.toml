@@ -9,6 +9,7 @@ dependencies = [
     "arq>=0.25.0",
     "asyncpg>=0.31.0",
     "bcrypt>=5.0.0",
+    "cloudinary>=1.44.2",
     "dnspython>=2.8.0",
     "fastapi[standard]>=0.129.2",
     "httpx>=0.28.1",
