@@ -2,8 +2,9 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
+from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentSuperUser, SessionDep
 from app.schemas.admin import AdminActivityListResponse
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
@@ -16,7 +17,13 @@ router = APIRouter()
 
 
 @router.get("/users/{user_id}/activities", response_model=AdminActivityListResponse)
+@audit_unexpected_failure(
+    activity_type=ActivityType.READ,
+    resource_type=ResourceType.ACTIVITY,
+    endpoint="/admin/users/{user_id}/activities",
+)
 async def list_user_activities(
+    _request: Request,
     _admin: CurrentSuperUser,
     session: SessionDep,
     user_id: uuid.UUID,
@@ -33,7 +40,13 @@ async def list_user_activities(
 
 
 @router.get("/activities", response_model=AdminActivityListResponse)
+@audit_unexpected_failure(
+    activity_type=ActivityType.READ,
+    resource_type=ResourceType.ACTIVITY,
+    endpoint="/admin/activities",
+)
 async def list_activities(
+    _request: Request,
     _admin: CurrentSuperUser,
     session: SessionDep,
     skip: Annotated[int, Query(ge=0)] = 0,

@@ -30,7 +30,13 @@ router = APIRouter()
 
 
 @router.get("", response_model=AdminUserListResponse)
+@audit_unexpected_failure(
+    activity_type=ActivityType.READ,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/users",
+)
 async def list_users(
+    _request: Request,
     _admin: CurrentSuperUser,
     session: SessionDep,
     skip: Annotated[int, Query(ge=0)] = 0,
@@ -53,7 +59,13 @@ async def list_users(
 
 
 @router.get("/{user_id}", response_model=AdminUserListItem)
+@audit_unexpected_failure(
+    activity_type=ActivityType.READ,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/users/{user_id}",
+)
 async def get_user(
+    _request: Request,
     _admin: CurrentSuperUser,
     session: SessionDep,
     user_id: uuid.UUID,
