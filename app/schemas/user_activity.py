@@ -25,6 +25,7 @@ class ResourceType(StrEnum):
 
     USER = "user"
     AUTH = "auth"
+    FILE = "file"
 
 
 class ActivityStatus(StrEnum):
