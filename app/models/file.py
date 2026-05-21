@@ -1,0 +1,41 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.db import Base
+from app.utils import utc_now
+
+
+class File(Base):
+    """Uploaded file metadata; the binary itself lives in Cloudinary.
+
+    Generic across features: consumers (avatar, gallery, posts, ...) point at
+    a File through their own ``file_id`` column rather than File referencing
+    them. ``uploaded_by_id`` records who uploaded it (audit + ownership checks)
+    but is nullable with ON DELETE SET NULL, so a file outlives its uploader.
+    """
+
+    __tablename__ = "file"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    uploaded_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"),
+        index=True,
+        default=None,
+    )
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    public_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    filename: Mapped[str | None] = mapped_column(String(255), default=None)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
