@@ -4,6 +4,8 @@ Covers listing, detail, update, suspend/unsuspend, delete, admin password
 rotation, self-protection, and the last-admin repository guard.
 """
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -19,6 +21,17 @@ from app.tests.admin.conftest import (
     register_and_verify,
 )
 from app.tests.conftest import TestingSessionLocal
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+
+
+async def _upload_png(client: AsyncClient, name: str = "a.png") -> str:
+    """Upload a PNG via the client and return the created file id."""
+    response = await client.post(
+        "/upload", files={"file": (name, PNG_BYTES, "image/png")}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
 
 
 @pytest.mark.asyncio
@@ -130,6 +143,75 @@ async def test_regular_user_avatar_visible_to_admin(client: AsyncClient):
 
     detail = await client.get(f"/admin/users/{member_id}")
     assert detail.json()["avatar_file"]["id"] == file_id
+
+
+@pytest.mark.asyncio
+async def test_admin_sets_user_avatar(admin_client: AsyncClient):
+    """An admin can attach a file they uploaded as another user's avatar."""
+    await register_and_verify(admin_client, "target@test.com")
+    target_id = await get_user_id("target@test.com")
+    file_id = await _upload_png(admin_client)
+
+    response = await admin_client.patch(
+        f"/admin/users/{target_id}", json={"avatar_file_id": file_id}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["avatar_file"]["id"] == file_id
+
+
+@pytest.mark.asyncio
+async def test_admin_replacing_avatar_deletes_old_file(admin_client: AsyncClient):
+    """Replacing a user's avatar purges the previous file (Cloudinary + DB)."""
+    await register_and_verify(admin_client, "target@test.com")
+    target_id = await get_user_id("target@test.com")
+
+    first_id = await _upload_png(admin_client, "first.png")
+    await admin_client.patch(
+        f"/admin/users/{target_id}", json={"avatar_file_id": first_id}
+    )
+
+    second_id = await _upload_png(admin_client, "second.png")
+    response = await admin_client.patch(
+        f"/admin/users/{target_id}", json={"avatar_file_id": second_id}
+    )
+    assert response.json()["user"]["avatar_file"]["id"] == second_id
+
+    # The replaced file no longer exists.
+    gone = await admin_client.get(f"/admin/files/{first_id}")
+    assert gone.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_clearing_avatar_deletes_file(admin_client: AsyncClient):
+    """Clearing the avatar (null) drops the reference and deletes the file."""
+    await register_and_verify(admin_client, "target@test.com")
+    target_id = await get_user_id("target@test.com")
+
+    file_id = await _upload_png(admin_client)
+    await admin_client.patch(
+        f"/admin/users/{target_id}", json={"avatar_file_id": file_id}
+    )
+
+    response = await admin_client.patch(
+        f"/admin/users/{target_id}", json={"avatar_file_id": None}
+    )
+    assert response.status_code == 200
+    assert response.json()["user"]["avatar_file"] is None
+
+    gone = await admin_client.get(f"/admin/files/{file_id}")
+    assert gone.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_set_avatar_missing_file_returns_404(admin_client: AsyncClient):
+    """Assigning a non-existent file id as an avatar returns 404."""
+    await register_and_verify(admin_client, "target@test.com")
+    target_id = await get_user_id("target@test.com")
+
+    response = await admin_client.patch(
+        f"/admin/users/{target_id}", json={"avatar_file_id": str(uuid.uuid4())}
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

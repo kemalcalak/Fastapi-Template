@@ -3,6 +3,7 @@ import uuid
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.config import settings
 from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
@@ -13,6 +14,8 @@ from app.repositories.admin.user import (
     is_last_active_admin,
     list_users_admin,
 )
+from app.repositories.file import delete_file as delete_file_record
+from app.repositories.file import get_file
 from app.repositories.user import (
     delete_user,
     get_user_by_id,
@@ -93,6 +96,26 @@ def _guard_not_self(admin_id: uuid.UUID, target_id: uuid.UUID, message: str) -> 
         )
 
 
+async def _validate_avatar_file_exists(
+    session: AsyncSession, file_id: uuid.UUID
+) -> None:
+    """Ensure the avatar target exists. Admins may assign any file (they upload
+    it on the user's behalf), so no uploader-ownership check is enforced."""
+    if await get_file(session, file_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.FILE_NOT_FOUND,
+        )
+
+
+async def _cleanup_old_avatar(session: AsyncSession, file_id: uuid.UUID) -> None:
+    """Delete a replaced/removed avatar's Cloudinary asset and DB row."""
+    old_file = await get_file(session, file_id)
+    if old_file is not None:
+        await storage.delete_file(old_file.public_id)
+        await delete_file_record(session, old_file)
+
+
 async def update_user_admin_service(
     request: Request,
     session: AsyncSession,
@@ -133,7 +156,26 @@ async def update_user_admin_service(
                 detail=ErrorMessages.ADMIN_CANNOT_DEMOTE_LAST_ADMIN,
             )
 
+    # Avatar: validate a new file exists, then remember the previous one so it
+    # can be purged (Cloudinary + DB) once the new reference is committed —
+    # covers both replacing and clearing the avatar.
+    avatar_change = "avatar_file_id" in update_data
+    old_avatar_file_id = target.avatar_file_id
+    new_avatar_file_id = update_data.get("avatar_file_id")
+    if avatar_change and new_avatar_file_id is not None:
+        await _validate_avatar_file_exists(session, new_avatar_file_id)
+
     updated = await update_user(session, target, update_data)
+
+    if (
+        avatar_change
+        and old_avatar_file_id
+        and old_avatar_file_id != new_avatar_file_id
+    ):
+        await _cleanup_old_avatar(session, old_avatar_file_id)
+
+    # Reload the avatar relationship so the response serializes the new state.
+    await session.refresh(updated, attribute_names=["avatar_file"])
 
     await log_activity(
         session=session,

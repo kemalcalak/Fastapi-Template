@@ -26,6 +26,7 @@ class AdminUserUpdate(BaseModel):
     role: SystemRole | None = None
     is_active: bool | None = None
     is_verified: bool | None = None
+    avatar_file_id: uuid.UUID | None = Field(default=None)
 
 
 class AdminUserListItem(BaseModel):
