@@ -4,8 +4,8 @@ import logging
 from dataclasses import dataclass
 from typing import cast
 
-import cloudinary  # type: ignore
-import cloudinary.uploader  # type: ignore
+import cloudinary  # pyright: ignore[reportMissingTypeStubs]
+import cloudinary.uploader  # pyright: ignore[reportMissingTypeStubs]
 
 from app.core.config import settings
 
@@ -37,7 +37,7 @@ def _configure() -> None:
     """
     if not is_configured():
         raise RuntimeError("Cloudinary credentials are not configured.")
-    cloudinary.config(  # type: ignore
+    cloudinary.config(  # pyright: ignore[reportUnknownMemberType]
         cloud_name=settings.CLOUDINARY_CLOUD_NAME,
         api_key=settings.CLOUDINARY_API_KEY,
         api_secret=settings.CLOUDINARY_API_SECRET,
@@ -61,7 +61,7 @@ async def upload_file(
 
     def _upload_sync() -> dict[str, object]:
         """Run the blocking Cloudinary upload inside asyncio.to_thread."""
-        raw = cloudinary.uploader.upload(  # type: ignore
+        raw = cloudinary.uploader.upload(  # pyright: ignore[reportUnknownMemberType, reportAny]
             io.BytesIO(content),
             folder=target_folder,
             resource_type=resource_type,
@@ -88,7 +88,7 @@ async def delete_file(public_id: str, *, resource_type: str = "image") -> bool:
 
     def _destroy_sync() -> dict[str, object]:
         """Run the blocking Cloudinary destroy inside asyncio.to_thread."""
-        raw = cloudinary.uploader.destroy(  # type: ignore
+        raw = cloudinary.uploader.destroy(  # pyright: ignore[reportUnknownMemberType, reportAny]
             public_id,
             resource_type=resource_type,
         )
