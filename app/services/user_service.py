@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import HTTPException, Request, status
@@ -34,6 +35,8 @@ from app.schemas.user import (
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
 from app.utils.email_templates import generate_account_deactivation_email
+
+logger = logging.getLogger(__name__)
 
 
 async def deactivate_own_account_service(
@@ -245,11 +248,21 @@ async def _validate_avatar_ownership(
 
 
 async def _cleanup_old_avatar(session: AsyncSession, file_id: uuid.UUID) -> None:
-    """Delete a replaced avatar's Cloudinary asset and DB row (best-effort)."""
+    """Delete a replaced avatar's Cloudinary asset and DB row (best-effort).
+
+    Cleanup runs after the user update has already committed, so any failure
+    here must be swallowed: a raised error would return 500 on an otherwise
+    successful update and orphan the old asset on retry.
+    """
     old_file = await get_file(session, file_id)
-    if old_file is not None:
-        await storage.delete_file(old_file.public_id)
+    if old_file is None:
+        return
+    await storage.delete_file(old_file.public_id)
+    try:
         await delete_file_record(session, old_file)
+    except Exception:
+        await session.rollback()
+        logger.exception("Failed to delete replaced avatar file record %s", file_id)
 
 
 async def update_user_service(
