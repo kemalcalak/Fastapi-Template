@@ -45,5 +45,6 @@ class UserActivityCreate(BaseModel):
     resource_id: uuid.UUID | None = None
     details: ActivityDetails = Field(default_factory=dict)
     status: ActivityStatus = ActivityStatus.SUCCESS
+    status_code: int | None = None
     ip_address: str | None = None
     user_agent: str | None = None

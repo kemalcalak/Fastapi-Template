@@ -20,6 +20,7 @@ async def list_activities_admin_service(
     activity_type: ActivityType | None,
     resource_type: ResourceType | None,
     status_filter: ActivityStatus | None,
+    status_code: int | None,
     date_from: datetime | None,
     date_to: datetime | None,
 ) -> AdminActivityListResponse:
@@ -32,6 +33,7 @@ async def list_activities_admin_service(
         activity_type=activity_type,
         resource_type=resource_type,
         status=status_filter,
+        status_code=status_code,
         date_from=date_from,
         date_to=date_to,
     )

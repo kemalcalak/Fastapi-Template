@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -61,6 +61,7 @@ def audit_unexpected_failure(
                         activity_type=activity_type,
                         resource_type=resource_type,
                         status=ActivityStatus.FAILURE,
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         details={"error": str(exc), "endpoint": endpoint},
                         request=request,
                     )

@@ -55,6 +55,7 @@ async def list_activities(
     activity_type: ActivityType | None = None,
     resource_type: ResourceType | None = None,
     status_filter: Annotated[ActivityStatus | None, Query(alias="status")] = None,
+    status_code: Annotated[int | None, Query(ge=100, le=599)] = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> AdminActivityListResponse:
@@ -67,6 +68,7 @@ async def list_activities(
         activity_type=activity_type,
         resource_type=resource_type,
         status_filter=status_filter,
+        status_code=status_code,
         date_from=date_from,
         date_to=date_to,
     )

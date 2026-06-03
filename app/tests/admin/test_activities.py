@@ -59,3 +59,41 @@ async def test_list_activities_global_filters(admin_client: AsyncClient):
     response = await admin_client.get("/admin/activities?status=failure")
     body = response.json()
     assert all(item["status"] == "failure" for item in body["data"])
+
+
+@pytest.mark.asyncio
+async def test_list_activities_status_code_filter(admin_client: AsyncClient):
+    """Global activities endpoint exposes status_code and filters on it."""
+    async with TestingSessionLocal() as session:
+        admin = (
+            (await session.execute(select(User).where(User.email == "admin@test.com")))
+            .scalars()
+            .one()
+        )
+        session.add_all(
+            [
+                UserActivity(
+                    user_id=admin.id,
+                    activity_type="login",
+                    resource_type="auth",
+                    details={"reason": "invalid_password"},
+                    status="failure",
+                    status_code=401,
+                ),
+                UserActivity(
+                    user_id=admin.id,
+                    activity_type="create",
+                    resource_type="user",
+                    details={"reason": "email_already_exists"},
+                    status="failure",
+                    status_code=409,
+                ),
+            ]
+        )
+        await session.commit()
+
+    response = await admin_client.get("/admin/activities?status_code=401&limit=100")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"], "expected at least one row with status_code 401"
+    assert all(item["status_code"] == 401 for item in body["data"])

@@ -15,6 +15,7 @@ from app.schemas.user_activity import (
 
 # Import the test session maker from conftest
 from app.tests.conftest import TestingSessionLocal
+from app.use_cases.log_activity import log_activity
 
 
 @pytest.fixture
@@ -78,3 +79,58 @@ async def test_create_user_activity(db_session: AsyncSession):
     assert db_record is not None
     assert db_record.user_id == fake_user_id
     assert db_record.activity_type == ActivityType.LOGIN.value
+
+
+@pytest.mark.asyncio
+async def test_log_activity_defaults_success_status_code_to_200(
+    db_session: AsyncSession,
+):
+    """log_activity should stamp successful entries with HTTP 200 by default."""
+    user_id = uuid.uuid4()
+    db_session.add(
+        User(
+            id=user_id,
+            email="success_code@example.com",
+            hashed_password="hashed_dummy_password",
+            is_active=True,
+        )
+    )
+    await db_session.commit()
+
+    activity = await log_activity(
+        session=db_session,
+        user_id=user_id,
+        activity_type=ActivityType.LOGIN,
+        resource_type=ResourceType.AUTH,
+    )
+
+    assert activity.status == ActivityStatus.SUCCESS.value
+    assert activity.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_log_activity_persists_failure_status_code(db_session: AsyncSession):
+    """log_activity should persist the explicit status_code passed on failures."""
+    user_id = uuid.uuid4()
+    db_session.add(
+        User(
+            id=user_id,
+            email="failure_code@example.com",
+            hashed_password="hashed_dummy_password",
+            is_active=True,
+        )
+    )
+    await db_session.commit()
+
+    activity = await log_activity(
+        session=db_session,
+        user_id=user_id,
+        activity_type=ActivityType.LOGIN,
+        resource_type=ResourceType.AUTH,
+        status=ActivityStatus.FAILURE,
+        status_code=401,
+        details={"reason": "invalid_password"},
+    )
+
+    assert activity.status == ActivityStatus.FAILURE.value
+    assert activity.status_code == 401
