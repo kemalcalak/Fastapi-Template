@@ -16,6 +16,7 @@ def _filtered_activities_stmt(
     activity_type: ActivityType | None,
     resource_type: ResourceType | None,
     status: ActivityStatus | None,
+    status_code: int | None,
     date_from: datetime | None,
     date_to: datetime | None,
 ) -> Select:
@@ -29,6 +30,8 @@ def _filtered_activities_stmt(
         stmt = stmt.where(UserActivity.resource_type == resource_type.value)
     if status is not None:
         stmt = stmt.where(UserActivity.status == status.value)
+    if status_code is not None:
+        stmt = stmt.where(UserActivity.status_code == status_code)
     if date_from is not None:
         stmt = stmt.where(UserActivity.created_at >= date_from)
     if date_to is not None:
@@ -45,6 +48,7 @@ async def list_activities_admin(
     activity_type: ActivityType | None = None,
     resource_type: ResourceType | None = None,
     status: ActivityStatus | None = None,
+    status_code: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> tuple[Sequence[UserActivity], int]:
@@ -54,6 +58,7 @@ async def list_activities_admin(
         activity_type=activity_type,
         resource_type=resource_type,
         status=status,
+        status_code=status_code,
         date_from=date_from,
         date_to=date_to,
     )

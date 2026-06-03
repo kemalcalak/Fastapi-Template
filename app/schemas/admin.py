@@ -120,6 +120,7 @@ class AdminActivityItem(BaseModel):
     resource_id: uuid.UUID | None = None
     details: ActivityDetails
     status: ActivityStatus
+    status_code: int | None = None
     ip_address: str | None = None
     user_agent: str | None = None
     created_at: datetime
