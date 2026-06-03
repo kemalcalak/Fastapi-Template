@@ -105,6 +105,7 @@ async def authenticate(
                 activity_type=ActivityType.LOGIN,
                 resource_type=ResourceType.AUTH,
                 status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 details={"reason": "invalid_password", "email": email},
                 request=request,
             )
@@ -124,6 +125,7 @@ async def authenticate(
                 activity_type=ActivityType.LOGIN,
                 resource_type=ResourceType.AUTH,
                 status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_403_FORBIDDEN,
                 details={"reason": "account_suspended", "email": email},
                 request=request,
             )
@@ -205,6 +207,7 @@ async def refresh_token_service(
                 activity_type=ActivityType.LOGIN,  # or READ
                 resource_type=ResourceType.AUTH,
                 status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 details={"reason": "token_blacklisted"},
                 request=request,
             )
@@ -225,6 +228,7 @@ async def refresh_token_service(
                 activity_type=ActivityType.LOGIN,
                 resource_type=ResourceType.AUTH,
                 status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_403_FORBIDDEN,
                 details={"reason": "user_deleted"},
                 request=request,
             )
@@ -241,6 +245,7 @@ async def refresh_token_service(
                 activity_type=ActivityType.LOGIN,
                 resource_type=ResourceType.AUTH,
                 status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_403_FORBIDDEN,
                 details={"reason": "account_suspended"},
                 request=request,
             )
@@ -469,6 +474,7 @@ async def change_password_service(
             activity_type=ActivityType.UPDATE,
             resource_type=ResourceType.AUTH,
             status=ActivityStatus.FAILURE,
+            status_code=status.HTTP_400_BAD_REQUEST,
             details={"reason": "invalid_current_password"},
             request=request,
         )

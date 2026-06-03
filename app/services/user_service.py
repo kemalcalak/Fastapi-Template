@@ -65,6 +65,7 @@ async def deactivate_own_account_service(
             activity_type=ActivityType.DELETE,
             resource_type=ResourceType.USER,
             status=ActivityStatus.FAILURE,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             details={"reason": "invalid_password"},
             request=request,
         )
@@ -182,6 +183,7 @@ async def create_user_service(
                 activity_type=ActivityType.CREATE,
                 resource_type=ResourceType.USER,
                 status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_409_CONFLICT,
                 details={"reason": "email_already_exists", "email": user_create.email},
                 request=request,
             )
