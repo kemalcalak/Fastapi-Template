@@ -32,7 +32,6 @@ async def log_activity(
     it defaults to ``200`` for successful entries; failures should pass the
     code that was raised so it can be filtered on later.
     """
-    # Successful entries default to HTTP 200 unless an explicit code is given.
     if status_code is None and status == ActivityStatus.SUCCESS:
         status_code = http_status.HTTP_200_OK
 
