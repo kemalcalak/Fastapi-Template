@@ -2,10 +2,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
+    from app.models.file import File
     from app.models.user_activity import UserActivity
 
 from app.core.db import Base
@@ -72,6 +73,17 @@ class User(Base):
     suspended_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
+    # Current avatar. use_alter breaks the User<->File circular FK so
+    # metadata.create_all (SQLite tests) can order the tables.
+    avatar_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "file.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_user_avatar_file_id",
+        ),
+        default=None,
+    )
 
     # passive_deletes=True lets Postgres handle the cascade via the FK's
     # ON DELETE CASCADE — a single DELETE statement instead of one per row.
@@ -80,4 +92,12 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+
+    # Avatar points at one File via the local avatar_file_id FK. selectin so
+    # it loads (batched) on every User load — safe to serialize in async.
+    avatar_file: Mapped["File | None"] = relationship(
+        "File",
+        foreign_keys=[avatar_file_id],
+        lazy="selectin",
     )

@@ -5,6 +5,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.core.messages.error_message import ErrorMessages
+from app.schemas.file import FilePublic
 
 
 class SystemRole(StrEnum):
@@ -71,6 +72,7 @@ class UserUpdateMe(BaseModel):
     last_name: str | None = Field(default=None, max_length=100)
     email: EmailStr | None = Field(default=None, max_length=255)
     title: str | None = Field(default=None, max_length=100)
+    avatar_file_id: uuid.UUID | None = Field(default=None)
 
 
 class UpdatePassword(BaseModel):
@@ -92,6 +94,7 @@ class UserPublic(UserBase):
     deactivated_at: datetime | None = None
     deletion_scheduled_at: datetime | None = None
     suspended_at: datetime | None = None
+    avatar_file: FilePublic | None = None
 
 
 class UserUpdateResponse(BaseModel):

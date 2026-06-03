@@ -23,3 +23,7 @@ class SuccessMessages:
     ADMIN_USER_UNSUSPENDED = "success.admin.user_unsuspended"
     ADMIN_USER_DELETED = "success.admin.user_deleted"
     ADMIN_PASSWORD_CHANGED = "success.admin.password_changed"
+
+    # File / upload
+    FILE_UPLOADED = "success.file.uploaded"
+    ADMIN_FILE_DELETED = "success.admin.file_deleted"

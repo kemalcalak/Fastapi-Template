@@ -65,6 +65,10 @@ Swagger: `http://localhost:8000/docs`
 | `POSTGRES_DB` | `app` | PostgreSQL database name |
 | `FIRST_SUPERUSER` | `admin@example.com` | Initial admin email |
 | `FIRST_SUPERUSER_PASSWORD` | — | Initial admin password |
+| `CLOUDINARY_CLOUD_NAME` | — | Cloudinary cloud name (required for `POST /upload`) |
+| `CLOUDINARY_API_KEY` | — | Cloudinary API key (required for `POST /upload`) |
+| `CLOUDINARY_API_SECRET` | — | Cloudinary API secret (required for `POST /upload`) |
+| `CLOUDINARY_UPLOAD_FOLDER` | `uploads` | Cloudinary folder uploads are stored under |
 
 > Never commit `.env`. It is already in `.gitignore`.
 

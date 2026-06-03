@@ -1,14 +1,18 @@
+import logging
 import uuid
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.config import settings
 from app.core.email import check_mx_record, is_disposable_email, send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.core.security import get_password_hash, verify_password
 from app.models.user import User
+from app.repositories.file import delete_file as delete_file_record
+from app.repositories.file import get_file
 from app.repositories.token_blacklist import add_token_to_blacklist
 from app.repositories.user import (
     create_user,
@@ -31,6 +35,8 @@ from app.schemas.user import (
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
 from app.utils.email_templates import generate_account_deactivation_email
+
+logger = logging.getLogger(__name__)
 
 
 async def deactivate_own_account_service(
@@ -224,6 +230,41 @@ async def list_users_service(
     return UsersPublic(data=users, count=count)
 
 
+async def _validate_avatar_ownership(
+    session: AsyncSession, current_user: User, file_id: uuid.UUID
+) -> None:
+    """Ensure the avatar target exists and was uploaded by the caller (IDOR guard)."""
+    file = await get_file(session, file_id)
+    if file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.FILE_NOT_FOUND,
+        )
+    if file.uploaded_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.FILE_FORBIDDEN,
+        )
+
+
+async def _cleanup_old_avatar(session: AsyncSession, file_id: uuid.UUID) -> None:
+    """Delete a replaced avatar's Cloudinary asset and DB row (best-effort).
+
+    Cleanup runs after the user update has already committed, so any failure
+    here must be swallowed: a raised error would return 500 on an otherwise
+    successful update and orphan the old asset on retry.
+    """
+    old_file = await get_file(session, file_id)
+    if old_file is None:
+        return
+    await storage.delete_file(old_file.public_id)
+    try:
+        await delete_file_record(session, old_file)
+    except Exception:
+        await session.rollback()
+        logger.exception("Failed to delete replaced avatar file record %s", file_id)
+
+
 async def update_user_service(
     request: Request,
     session: AsyncSession,
@@ -258,8 +299,27 @@ async def update_user_service(
         password = update_dict.pop("password")
         update_dict["hashed_password"] = get_password_hash(password)
 
+    # Avatar changes are privileged: a caller may only attach a file they
+    # uploaded. Validate ownership before the generic update and remember the
+    # previous avatar so it can be cleaned up afterwards.
+    avatar_change = "avatar_file_id" in update_dict
+    old_avatar_file_id = db_user.avatar_file_id
+    new_avatar_file_id = update_dict.get("avatar_file_id")
+    if avatar_change and new_avatar_file_id is not None:
+        await _validate_avatar_ownership(session, current_user, new_avatar_file_id)
+
     # 3. Call repository
     updated_user = await update_user(session, db_user, update_dict)
+
+    if (
+        avatar_change
+        and old_avatar_file_id
+        and old_avatar_file_id != new_avatar_file_id
+    ):
+        await _cleanup_old_avatar(session, old_avatar_file_id)
+
+    # Load the avatar relationship so UserPublic can serialize it.
+    await session.refresh(updated_user, attribute_names=["avatar_file"])
 
     await log_activity(
         session=session,

@@ -15,11 +15,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Import the models package so every model registers on Base.metadata.
+# Add new models to app/models/__init__.py — no need to touch this file.
+from app import models  # noqa: E402, F401
 from app.core.db import Base  # noqa: E402
-
-# Import all models here so Alembic can detect them
-from app.models.user import User  # noqa
-from app.models.user_activity import UserActivity  # noqa
 
 # add your model's MetaData object here
 # for 'autogenerate' support

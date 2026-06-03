@@ -1,8 +1,11 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import fakeredis.aioredis as fakeredis
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app import models  # noqa: F401
@@ -19,6 +22,16 @@ engine = create_async_engine(
     connect_args={"check_same_thread": False},
     pool_pre_ping=True,
 )
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection: object, _record: object) -> None:
+    """Enforce FKs in SQLite so ON DELETE SET NULL/CASCADE fire like Postgres."""
+    cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 TestingSessionLocal = async_sessionmaker(
     autocommit=False, autoflush=False, bind=engine, expire_on_commit=False
 )
@@ -106,3 +119,26 @@ async def mock_email_validation():
         ),
     ):
         yield
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_cloudinary():
+    """Stub Cloudinary so upload/delete never hit the network during tests.
+
+    Yields the upload/delete mocks so tests can assert calls. Each upload
+    returns a unique ``public_id`` to mirror real, non-colliding assets.
+    """
+    from app.core.storage import UploadResult
+
+    def _fake_upload(_content: bytes, **_kwargs: object) -> UploadResult:
+        return UploadResult(
+            url="https://cdn.test/img.png", public_id=f"uploads/{uuid4()}"
+        )
+
+    upload_mock = AsyncMock(side_effect=_fake_upload)
+    delete_mock = AsyncMock(return_value=True)
+    with (
+        patch("app.core.storage.upload_file", new=upload_mock),
+        patch("app.core.storage.delete_file", new=delete_mock),
+    ):
+        yield SimpleNamespace(upload=upload_mock, delete=delete_mock)

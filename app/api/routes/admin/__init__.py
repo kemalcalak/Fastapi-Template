@@ -6,9 +6,10 @@ here so ``api/main.py`` only needs to import a single ``router``.
 
 from fastapi import APIRouter
 
-from app.api.routes.admin import activities, stats, users
+from app.api.routes.admin import activities, files, stats, users
 
 router = APIRouter()
 router.include_router(users.router, prefix="/users")
+router.include_router(files.router, prefix="/files")
 router.include_router(activities.router)
 router.include_router(stats.router)
