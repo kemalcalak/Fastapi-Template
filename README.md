@@ -35,6 +35,7 @@ This template integrates the best-in-class Python ecosystem tools to provide a s
 - **Validation & Config:** [Pydantic v2](https://docs.pydantic.dev/latest/) and `pydantic-settings` for robust data validation and environment management.
 - **Security & Auth:** JWT access/refresh tokens accepted via either HttpOnly cookies *or* `Authorization: Bearer`, `bcrypt` password hashing, **Redis-backed token blacklist** (logout invalidation), strict origin-check middleware (returns 404 for foreign origins), and [Slowapi](https://slowapi.readthedocs.io/en/latest/) rate limiting for brute-force protection.
 - **Account Lifecycle:** Email verification, password reset, password change, and **soft-delete with grace period** — accounts marked for deletion can be reactivated until the cron worker purges them.
+- **File Uploads & Avatars:** [Cloudinary](https://cloudinary.com/)-backed image uploads via `POST /upload` (image-only, 5 MB cap, rate-limited + audited). A generic `File` model lets any feature attach uploads; user avatars enforce **ownership (IDOR) guards** — you may only attach a file you uploaded — and auto-delete the replaced avatar's asset. Admins get full file management (list/filter by uploader, hard-delete with avatar references auto-cleared). See [File Uploads & Avatars](#-file-uploads--avatars) below.
 - **Background Jobs:** [arq](https://arq-docs.helpmanual.io/) worker (separate container in compose) runs cron jobs such as `delete_expired_accounts` at the configured time.
 - **Audit Trail:** `user_activity` table records auth events and CRUD actions with IP / user agent. The `audit_unexpected_failure` decorator captures unexpected route failures.
 - **Smart Email Validation & Delivery:** Built-in asynchronous email sending with SMTP, domain MX record checking using `dnspython`, and auto-updating disposable email provider filtering via Redis cache.
@@ -110,6 +111,14 @@ SMTP_USE_SSL=False
 SMTP_USER="smtp_username"
 SMTP_PASSWORD="smtp_password"
 EMAILS_FROM_EMAIL="noreply@example.com"
+
+# Cloudinary (file/avatar uploads). Required to use POST /upload.
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+CLOUDINARY_UPLOAD_FOLDER="uploads"
+# Max upload size in bytes (default 5 MB). Uploads above this are rejected.
+MAX_UPLOAD_SIZE_BYTES=5242880
 
 # Sentry (only initialized when ENVIRONMENT != "local")
 SENTRY_DSN=
@@ -251,6 +260,29 @@ The SDK reads every other `OTEL_*` variable natively (sampler, headers, batch si
 
 ---
 
+## 📤 File Uploads & Avatars
+
+Image uploads are backed by [Cloudinary](https://cloudinary.com/). The binary lives in Cloudinary; Postgres stores only metadata (`url`, `public_id`, `content_type`, `size`, uploader) in a generic `file` table — so any feature (avatars today, galleries or attachments later) attaches an upload through its own `file_id` column rather than the `File` model referencing it.
+
+**Opt-in by design.** The Cloudinary credentials are optional at boot — the app starts fine without them. Uploads then fail *clearly at request time* (`500`, with a config error logged) rather than silently. Set the four `CLOUDINARY_*` vars (see `.env.example`) to enable `POST /upload`.
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `POST /upload` | any active user | Upload one image, return its `FilePublic` metadata. Rate-limited (`20/minute`) and audit-logged. |
+| `PATCH /users/me` | self | Attach or clear your own avatar via `avatar_file_id`. |
+| `GET /admin/files` | superuser | List / paginate uploads; filter by `content_type` or `uploader` (case-insensitive name / email match). |
+| `GET /admin/files/{id}` | superuser | A single file's admin view (includes uploader identity and `public_id`). |
+| `DELETE /admin/files/{id}` | superuser | Hard-delete the Cloudinary asset **and** the DB row. |
+
+**Rules baked in:**
+
+- **Images only, 5 MB cap** — `image/jpeg`, `image/png`, `image/webp`, `image/gif`. Oversized → `413`, wrong type → `415`, empty → `400`, Cloudinary failure → `502`. Limits live in `MAX_UPLOAD_SIZE_BYTES` and the upload service's MIME whitelist.
+- **Ownership (IDOR) guard** — you may only set your avatar to a file *you* uploaded; pointing at someone else's file returns `403`.
+- **Replaced-file cleanup** — swapping your avatar deletes the previous file's Cloudinary asset and DB row automatically, so no orphans accumulate.
+- **Safe deletes** — both `user.avatar_file_id` and `file.uploaded_by_id` are `ON DELETE SET NULL`, so deleting a file never leaves a dangling avatar and a file outlives the user who uploaded it.
+
+---
+
 ## 📂 Project Structure
 
 ```bash
@@ -258,10 +290,10 @@ The SDK reads every other `OTEL_*` variable natively (sampler, headers, batch si
 │   ├── alembic/          # Alembic env + versions/ (generated migration scripts)
 │   ├── api/              # API Layer: routers, deps.py, exception handlers, decorators
 │   │   └── routes/
-│   │       ├── auth.py, users.py, health.py
+│   │       ├── auth.py, users.py, files.py, health.py
 │   │       └── admin/    # Admin surface (gated by CurrentSuperUser)
-│   ├── core/             # config, db, security, redis, rate_limit, email, messages/
-│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, …)
+│   ├── core/             # config, db, security, redis, rate_limit, email, storage, messages/
+│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, File, …)
 │   ├── repositories/     # Data Layer: async DB queries (no business rules)
 │   ├── schemas/          # Pydantic v2 DTOs (Create / Update / Response per domain)
 │   ├── services/         # Business Logic Layer: pure async functions, take AsyncSession
