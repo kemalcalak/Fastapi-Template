@@ -15,6 +15,7 @@ async def create_user_activity(
         resource_id=activity_data.resource_id,
         details=activity_data.details,
         status=activity_data.status.value,
+        status_code=activity_data.status_code,
         ip_address=activity_data.ip_address,
         user_agent=activity_data.user_agent,
     )
