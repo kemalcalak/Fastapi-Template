@@ -2,6 +2,10 @@ services:
   db:
     image: postgres:17
     restart: always
+    # Raised connection ceiling for load testing: 4 API workers + arq worker
+    # each open their own pool, so the default max_connections=100 is too low.
+    command:
+      ["postgres", "-c", "max_connections=250", "-c", "shared_buffers=256MB"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -24,6 +28,21 @@ services:
     build:
       context: .
     restart: always
+    # Run multiple uvicorn workers so requests use more than one CPU core
+    # (the synchronous bcrypt hash in login otherwise blocks a single loop).
+    command:
+      [
+        "uv",
+        "run",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--workers",
+        "4",
+      ]
     ports:
       - "8000:8000"
     healthcheck:
