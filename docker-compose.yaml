@@ -2,10 +2,14 @@ services:
   db:
     image: postgres:17
     restart: always
-    # Raised connection ceiling for load testing: 4 API workers + arq worker
-    # each open their own pool, so the default max_connections=100 is too low.
-    command:
-      ["postgres", "-c", "max_connections=250", "-c", "shared_buffers=256MB"]
+    # Uses Postgres' default max_connections (100), which fits the single-worker
+    # API (pool DB_POOL_SIZE + DB_MAX_OVERFLOW) plus the arq worker with headroom.
+    #
+    # NOTE: when scaling the API (more --workers or replicas), raise the ceiling
+    # so (DB_POOL_SIZE + DB_MAX_OVERFLOW) × workers × replicas + the arq worker
+    # stays under max_connections, e.g.:
+    #   command:
+    #     ["postgres", "-c", "max_connections=250", "-c", "shared_buffers=256MB"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -28,21 +32,21 @@ services:
     build:
       context: .
     restart: always
-    # Run multiple uvicorn workers so requests use more than one CPU core
-    # (the synchronous bcrypt hash in login otherwise blocks a single loop).
-    command:
-      [
-        "uv",
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000",
-        "--workers",
-        "4",
-      ]
+    # Uses the Dockerfile's default CMD: a single uvicorn worker.
+    #
+    # NOTE: to scale across CPU cores, add a command with more --workers
+    # (e.g. --workers 4). With more than one worker, /metrics needs Prometheus
+    # multiprocess mode, otherwise it returns only the responding worker's
+    # slice. In that case run via a shell that prepares a shared metrics dir:
+    #   command:
+    #     - sh
+    #     - -c
+    #     - >
+    #       export PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc &&
+    #       mkdir -p "$$PROMETHEUS_MULTIPROC_DIR" &&
+    #       rm -f "$$PROMETHEUS_MULTIPROC_DIR"/* &&
+    #       exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    # app/core/metrics.py already aggregates across workers when that env var is set.
     ports:
       - "8000:8000"
     healthcheck:
