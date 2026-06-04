@@ -22,6 +22,9 @@ import random
 
 from locust import HttpUser, between, constant, task
 
+# Profile-update payload sent by the realistic browsing mix (PATCH /users/me).
+_UPDATE_BODY = {"first_name": "Load", "last_name": "Tester"}
+
 # --- Configuration via environment variables -------------------------------
 
 API_PREFIX = os.getenv("LT_API_PREFIX", "/api/v1")
@@ -59,7 +62,11 @@ def _login(client) -> bool:
 
 
 class ActiveUser(HttpUser):
-    """Realistic active user: authenticate once, then browse with think time."""
+    """Realistic active user: authenticate once, then exercise a mixed workload.
+
+    The task weights model typical usage — mostly reads, with occasional token
+    refreshes and profile updates (a DB write) — rather than a login storm.
+    """
 
     wait_time = between(WAIT_MIN, WAIT_MAX)
 
@@ -67,13 +74,35 @@ class ActiveUser(HttpUser):
         """Authenticate before issuing browsing requests."""
         self._authenticated = _login(self.client)
 
-    @task
-    def read_me(self) -> None:
-        """Fetch the current user's profile — a typical authenticated read."""
+    def _ensure_auth(self) -> bool:
+        """Re-login if the session is not authenticated yet; return auth state."""
         if not self._authenticated:
             self._authenticated = _login(self.client)
+            return False
+        return True
+
+    @task(6)
+    def read_me(self) -> None:
+        """Fetch the current user's profile — a typical authenticated read."""
+        if not self._ensure_auth():
             return
         self.client.get(f"{API_PREFIX}/users/me", name="GET /users/me")
+
+    @task(2)
+    def refresh(self) -> None:
+        """Refresh the access token using the refresh cookie (JWT + redis path)."""
+        if not self._ensure_auth():
+            return
+        self.client.post(f"{API_PREFIX}/auth/refresh", name="POST /auth/refresh")
+
+    @task(1)
+    def update_profile(self) -> None:
+        """Update own profile — exercises the authenticated DB write path."""
+        if not self._ensure_auth():
+            return
+        self.client.patch(
+            f"{API_PREFIX}/users/me", json=_UPDATE_BODY, name="PATCH /users/me"
+        )
 
 
 class HealthCeilingUser(HttpUser):
