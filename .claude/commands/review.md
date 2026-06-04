@@ -82,6 +82,8 @@ Pass this object to the five parallel reviewers in Step 4.
 
 ### Step 4 — Five parallel Sonnet reviewers
 
+> **Read-only mandate for every spawned agent (Steps 1–5).** Each agent's ONLY output is the JSON described in its prompt. An agent MUST NOT post, edit, or delete anything on the PR: never run `gh pr comment`, `gh issue comment`, `gh pr review`, or any `gh api` call with `-X POST`/`-X PATCH`/`-X PUT`/`-X DELETE`. Only the orchestrator posts, and only once, in Step 8. Any agent that writes to the PR is a pipeline violation and causes duplicate comments.
+
 Spawn the following five agents **in parallel** in a single message, all with `subagent_type: "general-purpose"` and `model: "sonnet"`. Each must return strict JSON of the shape:
 
 ```json
@@ -111,7 +113,7 @@ Spawn the following five agents **in parallel** in a single message, all with `s
 > 3. For every **changed line** (only lines added or modified in this PR), check whether it violates a rule in REVIEW.md sections **3 (Konvansiyonlar)**, **4 (Anti-pattern'ler)** or **5 (Review'da KESİNLİKLE Flag'lenecekler)**.
 > 4. Apply REVIEW.md section **6 (Görmezden Gelinecekler)** as a hard filter — if a finding falls under that list, drop it.
 >
-> Anchor every issue to a section/quote from REVIEW.md (`evidence` field). Do not invent rules. Do not flag pre-existing code that the PR did not touch. Output the JSON schema above.
+> Anchor every issue to a section/quote from REVIEW.md (`evidence` field). Do not invent rules. Do not flag pre-existing code that the PR did not touch. Output the JSON schema above — do NOT post or modify any PR comment; return only the JSON.
 
 #### Agent #2 — Shallow bug scan (FastAPI + async SQLAlchemy + Pydantic v2 specific)
 
@@ -280,7 +282,7 @@ Aggregate all `issues` from the five reviewers. For each issue, spawn a `general
 > - **100**: Definitely correct. Bug or rule violation visible in the diff, with verbatim REVIEW.md quote or unambiguous reasoning. Suggested fix is concrete.
 >
 > Input: `{ issue: <issue-json>, reviewMdExcerpt: <relevant section> }`.
-> Output strict JSON: `{ "confidence": 0|25|50|75|100, "reason": "one short sentence" }`.
+> Output strict JSON: `{ "confidence": 0|25|50|75|100, "reason": "one short sentence" }`. Return only the JSON — do NOT post or modify any PR comment.
 
 ---
 
@@ -360,6 +362,7 @@ Use `--body-file` (not `--body`) to preserve markdown formatting and avoid shell
 ## Hard rules for the orchestrator
 
 - **Never edit files.** This command only reviews.
+- **Only the orchestrator posts, and only in Step 8.** Spawned agents (Steps 1–5) are read-only: they return JSON and never call `gh pr comment`, `gh issue comment`, `gh pr review`, or a writing `gh api` (`-X POST/PATCH/PUT/DELETE`). If a sub-agent reports it already posted a comment, do not post again — verify the PR state and reconcile to exactly one correct comment.
 - **Never post more than one comment per run.** All findings are batched into a single comment.
 - **Never post without `REVIEW.md`** — abort instead. The whole pipeline relies on it for false-positive control.
 - **Always use the full head SHA** in permalinks, captured at Step 1, even if the PR receives new commits during the run. The review applies to the SHA you actually read.
