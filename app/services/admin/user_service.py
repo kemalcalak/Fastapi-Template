@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
-from app.core.security import generate_secure_random_password, get_password_hash
+from app.core.security import aget_password_hash, generate_secure_random_password
 from app.models.user import User
 from app.repositories.admin.user import (
     is_last_active_admin,
@@ -329,7 +329,7 @@ async def change_password_admin_service(
     target = await _load_target(session, user_id)
 
     new_password = generate_secure_random_password()
-    hashed_password = get_password_hash(new_password)
+    hashed_password = await aget_password_hash(new_password)
     await update_user(session, target, {"hashed_password": hashed_password})
 
     email_data = generate_password_reset_notification_email(

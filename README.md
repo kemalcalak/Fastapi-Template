@@ -170,6 +170,30 @@ To run the test suite locally:
 uv run pytest
 ```
 
+### Load Testing
+
+The `loadtest/` directory contains [Locust](https://locust.io/) scenarios for measuring capacity. Run the API with `ENVIRONMENT=local` so rate limiting is disabled and the test measures real throughput rather than the limiter.
+
+1. Seed verified test accounts directly into the database (the login flow rejects unverified users, so they cannot be created via the public register endpoint):
+
+   ```bash
+   uv run python -m loadtest.seed_users   # 50 accounts by default (LT_USER_COUNT)
+   ```
+
+2. Run a scenario — pick the user class by name:
+
+   ```bash
+   uv run locust -f loadtest/locustfile.py ActiveUser --host http://localhost:8000
+   ```
+
+Available scenarios:
+
+- **`ActiveUser`** — realistic mixed workload: log in once, then reads (`GET /users/me`), token refreshes, and profile updates with think time. Use this to gauge concurrent active users.
+- **`HealthCeilingUser`** — raw throughput ceiling (`GET /health/live`, no DB, no wait).
+- **`LoginStormUser`** — bcrypt-bound login throughput.
+
+Tune behaviour via env vars: `LT_USER_COUNT`, `LT_PASSWORD`, `LT_WAIT_MIN` / `LT_WAIT_MAX`, `LT_API_PREFIX`. For non-interactive runs add `--headless -u <users> -r <spawn-rate> -t <duration>`.
+
 ### Code Quality
 
 This project uses [Ruff](https://docs.astral.sh/ruff/) for both code linting and formatting. The configurations are specified in `pyproject.toml`.

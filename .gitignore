@@ -208,3 +208,6 @@ __marimo__/
 
 
 .agents
+
+# Load testing output (Locust CSV stats are regenerated on every run)
+loadtest/results_*.csv

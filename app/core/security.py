@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import bcrypt
 import jwt
+from anyio import to_thread
 
 from app.core.config import settings
 from app.utils import utc_now
@@ -140,6 +141,24 @@ def get_password_hash(password: str) -> str:
     """
     salt = bcrypt.gensalt(prefix=b"2b")
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+async def averify_password(plain_password: str, hashed_password: str) -> bool:
+    """Async wrapper for ``verify_password``.
+
+    bcrypt is CPU-bound and blocks the event loop; run it in a worker thread so
+    concurrent requests are not stalled while a password is verified.
+    """
+    return await to_thread.run_sync(verify_password, plain_password, hashed_password)
+
+
+async def aget_password_hash(password: str) -> str:
+    """Async wrapper for ``get_password_hash``.
+
+    Runs the CPU-bound bcrypt hashing in a worker thread to avoid blocking the
+    event loop.
+    """
+    return await to_thread.run_sync(get_password_hash, password)
 
 
 def generate_secure_random_password(length: int = 32) -> str:
