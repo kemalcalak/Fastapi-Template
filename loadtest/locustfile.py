@@ -78,8 +78,7 @@ class ActiveUser(HttpUser):
         """Re-login if the session is not authenticated yet; return auth state."""
         if not self._authenticated:
             self._authenticated = _login(self.client)
-            return False
-        return True
+        return self._authenticated
 
     @task(6)
     def read_me(self) -> None:
