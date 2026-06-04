@@ -14,11 +14,17 @@ Two responsibilities live here so ``main.py`` stays uncluttered:
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from fastapi import Header
 from fastapi.responses import Response
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    generate_latest,
+    multiprocess,
+)
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.exceptions import HTTPException
 
@@ -57,4 +63,14 @@ def init_metrics(app: FastAPI) -> None:
                     status_code=404,
                     detail=ErrorMessages.RESOURCE_NOT_FOUND,
                 )
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+        # Under multiple workers (PROMETHEUS_MULTIPROC_DIR set), each process
+        # writes to its own file; aggregate them via MultiProcessCollector so
+        # /metrics returns combined counts instead of one worker's slice.
+        if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+            registry = CollectorRegistry()
+            multiprocess.MultiProcessCollector(registry)
+            payload = generate_latest(registry)
+        else:
+            payload = generate_latest()
+        return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
