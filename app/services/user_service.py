@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.email import check_mx_record, is_disposable_email, send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
-from app.core.security import get_password_hash, verify_password
+from app.core.security import aget_password_hash, averify_password
 from app.models.user import User
 from app.repositories.file import delete_file as delete_file_record
 from app.repositories.file import get_file
@@ -58,7 +58,7 @@ async def deactivate_own_account_service(
             detail=ErrorMessages.ACCOUNT_ALREADY_DEACTIVATED,
         )
 
-    if not verify_password(password, current_user.hashed_password):
+    if not await averify_password(password, current_user.hashed_password):
         await log_activity(
             session=session,
             user_id=current_user.id,
@@ -194,7 +194,8 @@ async def create_user_service(
 
     # 2. Prepare user object
     user_data = user_create.model_dump(exclude={"password", "lang"})
-    db_obj = User(**user_data, hashed_password=get_password_hash(user_create.password))
+    hashed_password = await aget_password_hash(user_create.password)
+    db_obj = User(**user_data, hashed_password=hashed_password)
 
     # 3. Call repository
     created_user = await create_user(session, db_obj)
@@ -299,7 +300,7 @@ async def update_user_service(
     update_dict = user_update.model_dump(exclude_unset=True)
     if "password" in update_dict:
         password = update_dict.pop("password")
-        update_dict["hashed_password"] = get_password_hash(password)
+        update_dict["hashed_password"] = await aget_password_hash(password)
 
     # Avatar changes are privileged: a caller may only attach a file they
     # uploaded. Validate ownership before the generic update and remember the

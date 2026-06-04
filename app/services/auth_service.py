@@ -8,13 +8,14 @@ from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.core.security import (
+    aget_password_hash,
+    averify_password,
     create_access_token,
     create_password_reset_token,
     create_refresh_token,
     generate_new_account_token,
     get_password_hash,
     verify_new_account_token,
-    verify_password,
     verify_password_reset_token,
     verify_refresh_token,
 )
@@ -95,7 +96,7 @@ async def authenticate(
     # Always run verify_password so the response time does not leak whether
     # the email exists (email enumeration guard).
     hashed = user.hashed_password if user else _DUMMY_PASSWORD_HASH
-    password_ok = verify_password(password, hashed)
+    password_ok = await averify_password(password, hashed)
 
     if not user or not password_ok:
         if user and request:
@@ -393,7 +394,7 @@ async def reset_password_service(
             detail=ErrorMessages.USER_NOT_FOUND,
         )
 
-    hashed_password = get_password_hash(new_password)
+    hashed_password = await aget_password_hash(new_password)
 
     await update_user(session, user, {"hashed_password": hashed_password})
 
@@ -465,7 +466,7 @@ async def change_password_service(
     """
     Change user password after verifying current password.
     """
-    if not verify_password(
+    if not await averify_password(
         update_password.current_password, current_user.hashed_password
     ):
         await log_activity(
@@ -483,7 +484,7 @@ async def change_password_service(
             detail=ErrorMessages.INVALID_CURRENT_PASSWORD,
         )
 
-    hashed_password = get_password_hash(update_password.new_password)
+    hashed_password = await aget_password_hash(update_password.new_password)
     await update_user(session, current_user, {"hashed_password": hashed_password})
 
     await log_activity(
