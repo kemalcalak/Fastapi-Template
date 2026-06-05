@@ -190,6 +190,9 @@ async def reply_ticket_admin_service(
     message = await add_message(session, message)
     if files:
         await attach_files(session, message_id=message.id, files=files)
+        # Reload the message's attachments on the next read instead of the
+        # empty collection cached when the message was created.
+        session.expire(message, ["attachments"])
 
     update_data: dict = {"status": TicketStatus.PENDING.value}
     if ticket.assigned_admin_id is None:

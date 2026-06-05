@@ -138,6 +138,9 @@ async def create_ticket_service(
     message = await add_message(session, message)
     if files:
         await attach_files(session, message_id=message.id, files=files)
+        # Drop the freshly-created message's empty attachments collection from
+        # the identity map so the reload below loads the rows we just added.
+        session.expire(message, ["attachments"])
 
     await log_activity(
         session=session,
@@ -224,6 +227,7 @@ async def reply_ticket_service(
     message = await add_message(session, message)
     if files:
         await attach_files(session, message_id=message.id, files=files)
+        session.expire(message, ["attachments"])
 
     await update_ticket(session, ticket, {"status": TicketStatus.ANSWERED.value})
 
