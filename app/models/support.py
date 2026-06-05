@@ -18,6 +18,7 @@ from app.utils import utc_now
 
 if TYPE_CHECKING:
     from app.models.file import File
+    from app.models.user import User
 
 
 class SupportTicket(Base):
@@ -68,6 +69,14 @@ class SupportTicket(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    # Ticket owner, surfaced in admin views and searchable by name/email.
+    # foreign_keys is explicit because the table has two FKs to ``user``
+    # (owner + assigned_admin); without it SQLAlchemy can't pick a side.
+    user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[user_id],
     )
 
     # passive_deletes=True defers the cascade to the FK's ON DELETE CASCADE, so

@@ -27,3 +27,10 @@ class SuccessMessages:
     # File / upload
     FILE_UPLOADED = "success.file.uploaded"
     ADMIN_FILE_DELETED = "success.admin.file_deleted"
+
+    # Support / tickets
+    TICKET_CREATED = "success.support.ticket_created"
+    TICKET_CLOSED = "success.support.ticket_closed"
+    TICKET_MESSAGE_SENT = "success.support.message_sent"
+    ADMIN_TICKET_UPDATED = "success.support.admin_ticket_updated"
+    ADMIN_TICKET_REPLIED = "success.support.admin_ticket_replied"

@@ -1,0 +1,224 @@
+import logging
+import uuid
+
+from fastapi import HTTPException, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.messages.error_message import ErrorMessages
+from app.core.messages.success_message import SuccessMessages
+from app.models.support import SupportMessage, SupportTicket
+from app.models.user import User
+from app.repositories.support import (
+    add_message,
+    attach_files,
+    count_unread,
+    create_ticket,
+    get_message_with_attachments,
+    get_ticket,
+    get_ticket_with_thread,
+    list_user_tickets,
+    mark_thread_read,
+    update_ticket,
+)
+from app.schemas.support import (
+    MessageCreate,
+    SenderRole,
+    SupportMessageRead,
+    SupportMessageResponse,
+    SupportTicketDetail,
+    SupportTicketListItem,
+    SupportTicketListResponse,
+    SupportTicketResponse,
+    TicketCreate,
+    TicketStatus,
+)
+from app.schemas.user_activity import ActivityType, ResourceType
+from app.use_cases.log_activity import log_activity
+from app.use_cases.support_attachments import resolve_attachment_files
+from app.utils import utc_now
+
+logger = logging.getLogger(__name__)
+
+
+async def _load_owned_ticket(
+    session: AsyncSession, *, ticket_id: uuid.UUID, user: User
+) -> SupportTicket:
+    """Fetch a ticket and assert the caller owns it, else raise 404/403."""
+    ticket = await get_ticket(session, ticket_id)
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.TICKET_NOT_FOUND,
+        )
+    if ticket.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.TICKET_ACCESS_DENIED,
+        )
+    return ticket
+
+
+async def _serialize_detail(
+    session: AsyncSession, ticket_id: uuid.UUID
+) -> SupportTicketDetail:
+    """Reload a ticket with its full thread and map it to the detail schema."""
+    ticket = await get_ticket_with_thread(session, ticket_id)
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.TICKET_NOT_FOUND,
+        )
+    return SupportTicketDetail.model_validate(ticket)
+
+
+async def create_ticket_service(
+    session: AsyncSession,
+    *,
+    user: User,
+    payload: TicketCreate,
+    request: Request | None = None,
+) -> SupportTicketResponse:
+    """Open a new ticket with its first message and optional attachments."""
+    files = await resolve_attachment_files(
+        session, file_ids=payload.attachment_file_ids, uploader_id=user.id
+    )
+
+    ticket = SupportTicket(
+        user_id=user.id,
+        subject=payload.subject,
+        status=TicketStatus.OPEN.value,
+    )
+    ticket = await create_ticket(session, ticket)
+
+    message = SupportMessage(
+        ticket_id=ticket.id,
+        sender_id=user.id,
+        sender_role=SenderRole.USER.value,
+        body=payload.body,
+    )
+    message = await add_message(session, message)
+    if files:
+        await attach_files(session, message_id=message.id, files=files)
+
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.CREATE,
+        resource_type=ResourceType.SUPPORT_TICKET,
+        resource_id=ticket.id,
+        details={"subject": payload.subject},
+        request=request,
+    )
+
+    detail = await _serialize_detail(session, ticket.id)
+    return SupportTicketResponse(ticket=detail, message=SuccessMessages.TICKET_CREATED)
+
+
+async def list_my_tickets_service(
+    session: AsyncSession,
+    *,
+    user: User,
+    skip: int,
+    limit: int,
+    status: str | None,
+) -> SupportTicketListResponse:
+    """Return the caller's own tickets with per-ticket unread counts."""
+    tickets, total = await list_user_tickets(
+        session, user_id=user.id, skip=skip, limit=limit, status=status
+    )
+    items: list[SupportTicketListItem] = []
+    for ticket in tickets:
+        item = SupportTicketListItem.model_validate(ticket)
+        item.unread_count = await count_unread(
+            session, ticket_id=ticket.id, reader_role=SenderRole.USER.value
+        )
+        items.append(item)
+    return SupportTicketListResponse(data=items, total=total, skip=skip, limit=limit)
+
+
+async def get_my_ticket_service(
+    session: AsyncSession, *, user: User, ticket_id: uuid.UUID
+) -> SupportTicketDetail:
+    """Return one of the caller's tickets, marking admin replies as read."""
+    await _load_owned_ticket(session, ticket_id=ticket_id, user=user)
+    await mark_thread_read(
+        session, ticket_id=ticket_id, reader_role=SenderRole.USER.value
+    )
+    return await _serialize_detail(session, ticket_id)
+
+
+async def reply_ticket_service(
+    session: AsyncSession,
+    *,
+    user: User,
+    ticket_id: uuid.UUID,
+    payload: MessageCreate,
+    request: Request | None = None,
+) -> SupportMessageResponse:
+    """Append a user reply to an open ticket and move it back to the queue."""
+    ticket = await _load_owned_ticket(session, ticket_id=ticket_id, user=user)
+    if ticket.status == TicketStatus.CLOSED.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ErrorMessages.TICKET_ALREADY_CLOSED,
+        )
+
+    files = await resolve_attachment_files(
+        session, file_ids=payload.attachment_file_ids, uploader_id=user.id
+    )
+    message = SupportMessage(
+        ticket_id=ticket.id,
+        sender_id=user.id,
+        sender_role=SenderRole.USER.value,
+        body=payload.body,
+    )
+    message = await add_message(session, message)
+    if files:
+        await attach_files(session, message_id=message.id, files=files)
+
+    await update_ticket(session, ticket, {"status": TicketStatus.ANSWERED.value})
+
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.SUPPORT_TICKET,
+        resource_id=ticket.id,
+        details={"action": "user_replied"},
+        request=request,
+    )
+
+    loaded = await get_message_with_attachments(session, message.id)
+    return SupportMessageResponse(
+        data=SupportMessageRead.model_validate(loaded),
+        message=SuccessMessages.TICKET_MESSAGE_SENT,
+    )
+
+
+async def close_ticket_service(
+    session: AsyncSession,
+    *,
+    user: User,
+    ticket_id: uuid.UUID,
+    request: Request | None = None,
+) -> SupportTicketResponse:
+    """Close one of the caller's tickets."""
+    ticket = await _load_owned_ticket(session, ticket_id=ticket_id, user=user)
+    await update_ticket(
+        session,
+        ticket,
+        {"status": TicketStatus.CLOSED.value, "closed_at": utc_now()},
+    )
+
+    await log_activity(
+        session=session,
+        user_id=user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.SUPPORT_TICKET,
+        resource_id=ticket.id,
+        details={"action": "closed_by_user"},
+        request=request,
+    )
+
+    detail = await _serialize_detail(session, ticket_id)
+    return SupportTicketResponse(ticket=detail, message=SuccessMessages.TICKET_CLOSED)
