@@ -21,6 +21,7 @@ from app.repositories.support import (
     update_ticket,
 )
 from app.repositories.user import get_user_by_id
+from app.schemas.file import FileCategory
 from app.schemas.support import (
     AdminTicketDetail,
     AdminTicketListItem,
@@ -179,7 +180,10 @@ async def reply_ticket_admin_service(
     ticket = await _load_ticket_or_404(session, ticket_id)
 
     files = await resolve_attachment_files(
-        session, file_ids=payload.attachment_file_ids, uploader_id=admin.id
+        session,
+        file_ids=payload.attachment_file_ids,
+        uploader_id=admin.id,
+        expected_category=FileCategory.SUPPORT_ATTACHMENT,
     )
     message = SupportMessage(
         ticket_id=ticket.id,

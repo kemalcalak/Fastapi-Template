@@ -67,6 +67,41 @@ async def test_upload_success(client: AsyncClient):
     assert data["size"] == len(PNG_BYTES)
     assert "id" in data
     assert "public_id" not in data  # internal field stays hidden
+    assert data["category"] == "general"  # default bucket
+
+
+@pytest.mark.asyncio
+async def test_upload_category_buckets_into_folder(
+    client: AsyncClient, mock_cloudinary
+):
+    """A category tags the file and routes it to its Cloudinary sub-folder."""
+    await _register_verify_login(client, "u@test.com")
+
+    response = await client.post(
+        "/upload",
+        files={"file": ("a.png", PNG_BYTES, "image/png")},
+        data={"category": "support_attachment"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["category"] == "support_attachment"
+
+    folder = mock_cloudinary.upload.call_args.kwargs["folder"]
+    assert folder.startswith(f"{settings.CLOUDINARY_UPLOAD_FOLDER}/support_attachment/")
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_unknown_category(client: AsyncClient):
+    """An unrecognised category fails validation rather than being stored."""
+    await _register_verify_login(client, "u@test.com")
+
+    response = await client.post(
+        "/upload",
+        files={"file": ("a.png", PNG_BYTES, "image/png")},
+        data={"category": "not_a_real_bucket"},
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

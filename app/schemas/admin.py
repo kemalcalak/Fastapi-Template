@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.schemas.common import ActivityDetails
-from app.schemas.file import FilePublic
+from app.schemas.file import FileCategory, FilePublic
 from app.schemas.user import SystemRole
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 
@@ -94,6 +94,7 @@ class AdminFileListItem(BaseModel):
     content_type: str
     size: int
     filename: str | None = None
+    category: FileCategory = FileCategory.GENERAL
     uploaded_by_id: uuid.UUID | None = None
     uploaded_by: AdminFileUploader | None = None
     created_at: datetime

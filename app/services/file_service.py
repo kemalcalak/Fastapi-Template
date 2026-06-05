@@ -9,6 +9,7 @@ from app.core.messages.error_message import ErrorMessages
 from app.models.file import File
 from app.models.user import User
 from app.repositories.file import create_file
+from app.schemas.file import FileCategory
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
 
@@ -26,12 +27,14 @@ async def upload_file_service(
     session: AsyncSession,
     current_user: User,
     upload: UploadFile,
+    category: FileCategory = FileCategory.GENERAL,
 ) -> File:
     """Validate an uploaded image, store it on Cloudinary, and persist metadata.
 
     Rejects files over ``MAX_UPLOAD_SIZE_BYTES`` (413) or whose content type is
     not an allowed image (415). The stored record is owned by ``current_user``
-    and the upload is recorded in the activity log.
+    and the upload is recorded in the activity log. ``category`` tags the file
+    and selects the Cloudinary sub-folder it lands in.
     """
     # Fast reject using the reported size before reading the body into memory.
     if upload.size is not None and upload.size > settings.MAX_UPLOAD_SIZE_BYTES:
@@ -59,8 +62,13 @@ async def upload_file_service(
             detail=ErrorMessages.FILE_TOO_LARGE,
         )
 
+    # Organise assets on Cloudinary as ``<base>/<category>/<user_id>`` so files
+    # are grouped by purpose and owner instead of dumped in one flat folder.
+    folder = f"{settings.CLOUDINARY_UPLOAD_FOLDER}/{category.value}/{current_user.id}"
     try:
-        result = await storage.upload_file(content, resource_type="image")
+        result = await storage.upload_file(
+            content, folder=folder, resource_type="image"
+        )
     except RuntimeError as e:
         # Missing/invalid Cloudinary credentials — a server misconfiguration.
         logger.error(f"Cloudinary not configured: {e}")
@@ -81,6 +89,7 @@ async def upload_file_service(
         filename=upload.filename,
         content_type=content_type,
         size=len(content),
+        category=category.value,
         uploaded_by_id=current_user.id,
     )
     created = await create_file(session, file)

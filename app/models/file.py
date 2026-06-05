@@ -37,6 +37,16 @@ class File(Base):
     filename: Mapped[str | None] = mapped_column(String(255), default=None)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Logical bucket + Cloudinary sub-folder name. server_default backfills
+    # existing rows as "general" so the NOT NULL column adds cleanly; indexed
+    # for admin filtering and per-category cleanup queries.
+    category: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        server_default="general",
+        default="general",
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

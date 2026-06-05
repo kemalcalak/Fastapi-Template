@@ -64,10 +64,16 @@ async def make_admin_client(factory: ClientFactory, email: str) -> AsyncClient:
     return ac
 
 
-async def upload_png(client: AsyncClient, name: str = "a.png") -> str:
-    """Upload a PNG via the client and return the created file id."""
+async def upload_png(
+    client: AsyncClient,
+    name: str = "a.png",
+    category: str = "support_attachment",
+) -> str:
+    """Upload a PNG in the given category and return the created file id."""
     response = await client.post(
-        "/upload", files={"file": (name, PNG_BYTES, "image/png")}
+        "/upload",
+        files={"file": (name, PNG_BYTES, "image/png")},
+        data={"category": category},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]

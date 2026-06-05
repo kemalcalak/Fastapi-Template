@@ -21,6 +21,7 @@ from app.repositories.support import (
     mark_thread_read,
     update_ticket,
 )
+from app.schemas.file import FileCategory
 from app.schemas.support import (
     AdminTicketListItem,
     MessageCreate,
@@ -119,7 +120,10 @@ async def create_ticket_service(
 ) -> SupportTicketResponse:
     """Open a new ticket with its first message and optional attachments."""
     files = await resolve_attachment_files(
-        session, file_ids=payload.attachment_file_ids, uploader_id=user.id
+        session,
+        file_ids=payload.attachment_file_ids,
+        uploader_id=user.id,
+        expected_category=FileCategory.SUPPORT_ATTACHMENT,
     )
 
     ticket = SupportTicket(
@@ -216,7 +220,10 @@ async def reply_ticket_service(
         )
 
     files = await resolve_attachment_files(
-        session, file_ids=payload.attachment_file_ids, uploader_id=user.id
+        session,
+        file_ids=payload.attachment_file_ids,
+        uploader_id=user.id,
+        expected_category=FileCategory.SUPPORT_ATTACHMENT,
     )
     message = SupportMessage(
         ticket_id=ticket.id,

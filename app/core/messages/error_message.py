@@ -52,4 +52,5 @@ class ErrorMessages:
     TICKET_ALREADY_CLOSED = "error.support.ticket_already_closed"
     ATTACHMENT_NOT_FOUND = "error.support.attachment_not_found"
     ATTACHMENT_NOT_OWNED = "error.support.attachment_not_owned"
+    ATTACHMENT_WRONG_CATEGORY = "error.support.attachment_wrong_category"
     INVALID_ASSIGNED_ADMIN = "error.support.invalid_assigned_admin"

@@ -52,6 +52,25 @@ async def test_create_with_attachment(client_factory: ClientFactory):
 
 
 @pytest.mark.asyncio
+async def test_attachment_wrong_category_rejected(client_factory: ClientFactory):
+    """A file uploaded under another category cannot be a support attachment."""
+    user = await make_user_client(client_factory, "u1@test.com")
+    avatar_file = await upload_png(user, category="user_profile_photo")
+
+    response = await user.post(
+        "/support/tickets",
+        json={
+            "subject": "Wrong bucket",
+            "body": "Attaching a profile photo",
+            "attachment_file_ids": [avatar_file],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == ErrorMessages.ATTACHMENT_WRONG_CATEGORY
+
+
+@pytest.mark.asyncio
 async def test_attachment_ownership_rejected(client_factory: ClientFactory):
     """A user cannot attach a file uploaded by someone else (IDOR guard)."""
     owner = await make_user_client(client_factory, "owner@test.com")
