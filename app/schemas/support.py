@@ -196,3 +196,28 @@ class SupportMessageResponse(BaseModel):
 
     data: SupportMessageRead
     message: str
+
+
+# --- Realtime (WebSocket / Redis pub-sub) ----------------------------------
+
+
+class RealtimeEventType(StrEnum):
+    """Kinds of events pushed over a support WebSocket."""
+
+    MESSAGE_CREATED = "message_created"
+    TICKET_CREATED = "ticket_created"
+    TICKET_UPDATED = "ticket_updated"
+
+
+class RealtimeEvent(BaseModel):
+    """Envelope broadcast to subscribers when a ticket changes.
+
+    ``message`` is set for new-message events; ``ticket`` carries a summary row
+    for the admin feed on ticket creation/updates. Both stay ``None`` when not
+    relevant to the event type, keeping the payload concretely typed.
+    """
+
+    type: RealtimeEventType
+    ticket_id: uuid.UUID
+    message: SupportMessageRead | None = None
+    ticket: AdminTicketListItem | None = None
