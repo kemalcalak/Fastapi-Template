@@ -83,6 +83,14 @@ async def publish(topic: str, event: RealtimeEvent) -> None:
     await get_redis().publish(f"{_CHANNEL_PREFIX}{topic}", event.model_dump_json())
 
 
+async def publish_safe(topic: str, event: RealtimeEvent) -> None:
+    """Publish without letting a realtime failure break the caller's request."""
+    try:
+        await publish(topic, event)
+    except Exception:  # noqa: BLE001 - realtime is best-effort, never fatal
+        logger.exception("Failed to publish realtime event to topic %s", topic)
+
+
 async def _listen() -> None:
     """Bridge Redis pub/sub messages to local WebSocket connections."""
     pubsub = get_redis().pubsub()

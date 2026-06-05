@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
+from app.core.realtime import publish_safe
 from app.models.support import SupportMessage, SupportTicket
 from app.models.user import User
 from app.repositories.admin.support import list_tickets_admin
@@ -26,9 +27,12 @@ from app.schemas.support import (
     AdminTicketListResponse,
     AdminTicketUpdate,
     MessageCreate,
+    RealtimeEvent,
+    RealtimeEventType,
     SenderRole,
     SupportMessageRead,
     SupportMessageResponse,
+    SupportTicketUser,
     TicketStatus,
 )
 from app.schemas.user import SystemRole
@@ -64,6 +68,62 @@ async def _serialize_admin_detail(
             detail=ErrorMessages.TICKET_NOT_FOUND,
         )
     return AdminTicketDetail.model_validate(ticket)
+
+
+async def _admin_summary(
+    session: AsyncSession, ticket: SupportTicket
+) -> AdminTicketListItem | None:
+    """Build the admin-queue summary row, loading the owner for its user field.
+
+    Returns ``None`` if the owner can't be resolved, so realtime publishing is
+    simply skipped rather than failing the admin's action.
+    """
+    owner = await get_user_by_id(session, ticket.user_id)
+    if owner is None:
+        return None
+    unread = await count_unread(
+        session, ticket_id=ticket.id, reader_role=SenderRole.ADMIN.value
+    )
+    return AdminTicketListItem(
+        id=ticket.id,
+        subject=ticket.subject,
+        status=ticket.status,
+        priority=ticket.priority,
+        last_message_at=ticket.last_message_at,
+        created_at=ticket.created_at,
+        closed_at=ticket.closed_at,
+        assigned_admin_id=ticket.assigned_admin_id,
+        user=SupportTicketUser(
+            id=owner.id,
+            email=owner.email,
+            first_name=owner.first_name,
+            last_name=owner.last_name,
+        ),
+        unread_count=unread,
+    )
+
+
+async def _publish_ticket_update(session: AsyncSession, ticket: SupportTicket) -> None:
+    """Notify the ticket thread and the admin feed that a ticket changed."""
+    await publish_safe(
+        f"ticket:{ticket.id}",
+        RealtimeEvent(type=RealtimeEventType.TICKET_UPDATED, ticket_id=ticket.id),
+    )
+    summary = await _admin_summary(session, ticket)
+    if summary is not None:
+        await publish_safe(
+            "admin",
+            RealtimeEvent(
+                type=RealtimeEventType.TICKET_UPDATED,
+                ticket_id=ticket.id,
+                ticket=summary,
+            ),
+        )
+
+
+async def ticket_exists_service(session: AsyncSession, ticket_id: uuid.UUID) -> bool:
+    """Return whether a ticket exists — the gate for the admin WebSocket."""
+    return await get_ticket(session, ticket_id) is not None
 
 
 async def list_tickets_admin_service(
@@ -147,8 +207,29 @@ async def reply_ticket_admin_service(
     )
 
     loaded = await get_message_with_attachments(session, message.id)
+    message_read = SupportMessageRead.model_validate(loaded)
+
+    await publish_safe(
+        f"ticket:{ticket.id}",
+        RealtimeEvent(
+            type=RealtimeEventType.MESSAGE_CREATED,
+            ticket_id=ticket.id,
+            message=message_read,
+        ),
+    )
+    summary = await _admin_summary(session, ticket)
+    if summary is not None:
+        await publish_safe(
+            "admin",
+            RealtimeEvent(
+                type=RealtimeEventType.TICKET_UPDATED,
+                ticket_id=ticket.id,
+                ticket=summary,
+            ),
+        )
+
     return SupportMessageResponse(
-        data=SupportMessageRead.model_validate(loaded),
+        data=message_read,
         message=SuccessMessages.ADMIN_TICKET_REPLIED,
     )
 
@@ -193,5 +274,7 @@ async def update_ticket_admin_service(
         details={"updated_fields": list(update_data.keys())},
         request=request,
     )
+
+    await _publish_ticket_update(session, ticket)
 
     return await _serialize_admin_detail(session, ticket_id)

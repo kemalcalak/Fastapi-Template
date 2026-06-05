@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
+from app.core.realtime import publish_safe
 from app.models.support import SupportMessage, SupportTicket
 from app.models.user import User
 from app.repositories.support import (
@@ -21,7 +22,10 @@ from app.repositories.support import (
     update_ticket,
 )
 from app.schemas.support import (
+    AdminTicketListItem,
     MessageCreate,
+    RealtimeEvent,
+    RealtimeEventType,
     SenderRole,
     SupportMessageRead,
     SupportMessageResponse,
@@ -29,6 +33,7 @@ from app.schemas.support import (
     SupportTicketListItem,
     SupportTicketListResponse,
     SupportTicketResponse,
+    SupportTicketUser,
     TicketCreate,
     TicketStatus,
 )
@@ -71,6 +76,40 @@ async def _serialize_detail(
     return SupportTicketDetail.model_validate(ticket)
 
 
+async def _admin_summary(
+    session: AsyncSession, ticket: SupportTicket, owner: User
+) -> AdminTicketListItem:
+    """Build the admin-queue summary row pushed over the ``admin`` feed."""
+    unread = await count_unread(
+        session, ticket_id=ticket.id, reader_role=SenderRole.ADMIN.value
+    )
+    return AdminTicketListItem(
+        id=ticket.id,
+        subject=ticket.subject,
+        status=ticket.status,
+        priority=ticket.priority,
+        last_message_at=ticket.last_message_at,
+        created_at=ticket.created_at,
+        closed_at=ticket.closed_at,
+        assigned_admin_id=ticket.assigned_admin_id,
+        user=SupportTicketUser(
+            id=owner.id,
+            email=owner.email,
+            first_name=owner.first_name,
+            last_name=owner.last_name,
+        ),
+        unread_count=unread,
+    )
+
+
+async def can_user_access_ticket(
+    session: AsyncSession, *, user: User, ticket_id: uuid.UUID
+) -> bool:
+    """Return whether ``user`` owns the ticket — the gate for its WebSocket."""
+    ticket = await get_ticket(session, ticket_id)
+    return ticket is not None and ticket.user_id == user.id
+
+
 async def create_ticket_service(
     session: AsyncSession,
     *,
@@ -108,6 +147,16 @@ async def create_ticket_service(
         resource_id=ticket.id,
         details={"subject": payload.subject},
         request=request,
+    )
+
+    summary = await _admin_summary(session, ticket, user)
+    await publish_safe(
+        "admin",
+        RealtimeEvent(
+            type=RealtimeEventType.TICKET_CREATED,
+            ticket_id=ticket.id,
+            ticket=summary,
+        ),
     )
 
     detail = await _serialize_detail(session, ticket.id)
@@ -189,8 +238,28 @@ async def reply_ticket_service(
     )
 
     loaded = await get_message_with_attachments(session, message.id)
+    message_read = SupportMessageRead.model_validate(loaded)
+
+    await publish_safe(
+        f"ticket:{ticket.id}",
+        RealtimeEvent(
+            type=RealtimeEventType.MESSAGE_CREATED,
+            ticket_id=ticket.id,
+            message=message_read,
+        ),
+    )
+    summary = await _admin_summary(session, ticket, user)
+    await publish_safe(
+        "admin",
+        RealtimeEvent(
+            type=RealtimeEventType.TICKET_UPDATED,
+            ticket_id=ticket.id,
+            ticket=summary,
+        ),
+    )
+
     return SupportMessageResponse(
-        data=SupportMessageRead.model_validate(loaded),
+        data=message_read,
         message=SuccessMessages.TICKET_MESSAGE_SENT,
     )
 
@@ -218,6 +287,20 @@ async def close_ticket_service(
         resource_id=ticket.id,
         details={"action": "closed_by_user"},
         request=request,
+    )
+
+    summary = await _admin_summary(session, ticket, user)
+    await publish_safe(
+        f"ticket:{ticket.id}",
+        RealtimeEvent(type=RealtimeEventType.TICKET_UPDATED, ticket_id=ticket.id),
+    )
+    await publish_safe(
+        "admin",
+        RealtimeEvent(
+            type=RealtimeEventType.TICKET_UPDATED,
+            ticket_id=ticket.id,
+            ticket=summary,
+        ),
     )
 
     detail = await _serialize_detail(session, ticket_id)

@@ -2,7 +2,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, WebSocket, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,6 +101,34 @@ def get_current_superuser(
             detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
         )
     return current_user
+
+
+async def get_ws_user(websocket: WebSocket, db: AsyncSession) -> User | None:
+    """Authenticate a WebSocket from its ``access_token`` cookie.
+
+    Mirrors ``get_current_user`` but returns ``None`` instead of raising, so the
+    caller can close the socket with an application code. Cookie-only: a browser
+    sends the auth cookie on the WebSocket handshake automatically, while bearer
+    headers are awkward to set on ``WebSocket`` clients.
+    """
+    token = websocket.cookies.get("access_token")
+    if not token:
+        return None
+
+    try:
+        if await is_token_blacklisted(token):
+            return None
+        token_subject = verify_token(token)
+        if token_subject is None:
+            return None
+        token_data = TokenPayload(sub=token_subject)
+    except (ValidationError, ValueError):
+        return None
+
+    user = await get_user_by_id(db, user_id=uuid.UUID(token_data.sub))
+    if user is None or not user.is_active:
+        return None
+    return user
 
 
 # Type aliases for dependency injection
