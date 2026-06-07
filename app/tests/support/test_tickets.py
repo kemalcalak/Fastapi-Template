@@ -131,8 +131,8 @@ async def test_get_nonexistent_ticket_404(client_factory: ClientFactory):
 
 
 @pytest.mark.asyncio
-async def test_reply_sets_status_answered(client_factory: ClientFactory):
-    """A user reply moves the ticket into the 'answered' state."""
+async def test_reply_sets_status_pending(client_factory: ClientFactory):
+    """A user reply moves the ticket into the 'pending' (awaiting admin) state."""
     user = await make_user_client(client_factory, "u1@test.com")
     ticket = await open_ticket(user)
 
@@ -145,7 +145,7 @@ async def test_reply_sets_status_answered(client_factory: ClientFactory):
     assert response.json()["data"]["sender_role"] == SenderRole.USER.value
 
     detail = await user.get(f"/support/tickets/{ticket['id']}")
-    assert detail.json()["status"] == TicketStatus.ANSWERED.value
+    assert detail.json()["status"] == TicketStatus.PENDING.value
 
 
 @pytest.mark.asyncio

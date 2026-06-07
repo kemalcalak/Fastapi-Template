@@ -30,6 +30,7 @@ async def get_ticket_with_thread(
         .where(SupportTicket.id == ticket_id)
         .options(
             selectinload(SupportTicket.user),
+            selectinload(SupportTicket.assigned_admin),
             selectinload(SupportTicket.messages)
             .selectinload(SupportMessage.attachments)
             .selectinload(SupportMessageAttachment.file),

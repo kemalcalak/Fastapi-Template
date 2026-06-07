@@ -79,8 +79,8 @@ async def test_search_by_user_email(client_factory: ClientFactory):
 
 
 @pytest.mark.asyncio
-async def test_reply_self_assigns_and_pends(client_factory: ClientFactory):
-    """An admin reply self-assigns the ticket and sets status to pending."""
+async def test_reply_self_assigns_and_answers(client_factory: ClientFactory):
+    """An admin reply self-assigns the ticket and marks it answered."""
     user = await make_user_client(client_factory, "u1@test.com")
     admin = await make_admin_client(client_factory, "admin@test.com")
     ticket = await open_ticket(user)
@@ -95,7 +95,7 @@ async def test_reply_self_assigns_and_pends(client_factory: ClientFactory):
 
     detail = await admin.get(f"/admin/support/tickets/{ticket['id']}")
     body = detail.json()
-    assert body["status"] == TicketStatus.PENDING.value
+    assert body["status"] == TicketStatus.ANSWERED.value
     assert body["assigned_admin_id"] is not None
 
 
@@ -114,7 +114,7 @@ async def test_update_status_and_priority(client_factory: ClientFactory):
         },
     )
     assert response.status_code == 200, response.text
-    body = response.json()
+    body = response.json()["ticket"]
     assert body["status"] == TicketStatus.CLOSED.value
     assert body["priority"] == TicketPriority.HIGH.value
     assert body["closed_at"] is not None
@@ -123,7 +123,7 @@ async def test_update_status_and_priority(client_factory: ClientFactory):
         f"/admin/support/tickets/{ticket['id']}",
         json={"status": TicketStatus.OPEN.value},
     )
-    assert response.json()["closed_at"] is None
+    assert response.json()["ticket"]["closed_at"] is None
 
 
 @pytest.mark.asyncio
@@ -141,6 +141,59 @@ async def test_assign_to_non_admin_rejected(client_factory: ClientFactory):
 
     assert response.status_code == 422
     assert response.json()["error"] == ErrorMessages.INVALID_ASSIGNED_ADMIN
+
+
+@pytest.mark.asyncio
+async def test_assignee_surfaced_in_queue_and_detail(client_factory: ClientFactory):
+    """Once assigned, the admin appears on both the queue row and the detail."""
+    user = await make_user_client(client_factory, "u1@test.com")
+    admin = await make_admin_client(client_factory, "admin@test.com")
+    ticket = await open_ticket(user)
+
+    # An admin reply self-assigns the ticket.
+    await admin.post(
+        f"/admin/support/tickets/{ticket['id']}/messages",
+        json={"body": "on it"},
+    )
+
+    listed = await admin.get("/admin/support/tickets")
+    row = listed.json()["data"][0]
+    assert row["assigned_admin"] is not None
+    assert row["assigned_admin"]["email"] == "admin@test.com"
+
+    detail = await admin.get(f"/admin/support/tickets/{ticket['id']}")
+    assert detail.json()["assigned_admin"]["email"] == "admin@test.com"
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_reply_to_closed_ticket(client_factory: ClientFactory):
+    """A closed ticket must be reopened before an admin can post to it."""
+    user = await make_user_client(client_factory, "u1@test.com")
+    admin = await make_admin_client(client_factory, "admin@test.com")
+    ticket = await open_ticket(user)
+
+    await admin.patch(
+        f"/admin/support/tickets/{ticket['id']}",
+        json={"status": TicketStatus.CLOSED.value},
+    )
+
+    rejected = await admin.post(
+        f"/admin/support/tickets/{ticket['id']}/messages",
+        json={"body": "still here?"},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"] == ErrorMessages.TICKET_ALREADY_CLOSED
+
+    # Reopening clears the gate so the admin can reply again.
+    await admin.patch(
+        f"/admin/support/tickets/{ticket['id']}",
+        json={"status": TicketStatus.OPEN.value},
+    )
+    accepted = await admin.post(
+        f"/admin/support/tickets/{ticket['id']}/messages",
+        json={"body": "reopened"},
+    )
+    assert accepted.status_code == 201
 
 
 @pytest.mark.asyncio

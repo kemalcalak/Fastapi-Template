@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
-from app.core.realtime import publish_safe
+from app.core.realtime import publish_feeds, publish_safe
 from app.models.support import SupportMessage, SupportTicket
 from app.models.user import User
 from app.repositories.admin.support import list_tickets_admin
@@ -26,6 +26,7 @@ from app.schemas.support import (
     AdminTicketDetail,
     AdminTicketListItem,
     AdminTicketListResponse,
+    AdminTicketResponse,
     AdminTicketUpdate,
     MessageCreate,
     RealtimeEvent,
@@ -112,8 +113,8 @@ async def _publish_ticket_update(session: AsyncSession, ticket: SupportTicket) -
     )
     summary = await _admin_summary(session, ticket)
     if summary is not None:
-        await publish_safe(
-            "admin",
+        await publish_feeds(
+            ticket.user_id,
             RealtimeEvent(
                 type=RealtimeEventType.TICKET_UPDATED,
                 ticket_id=ticket.id,
@@ -178,6 +179,13 @@ async def reply_ticket_admin_service(
 ) -> SupportMessageResponse:
     """Append an admin reply, self-assign if unassigned, await user response."""
     ticket = await _load_ticket_or_404(session, ticket_id)
+    if ticket.status == TicketStatus.CLOSED.value:
+        # A closed ticket must be explicitly reopened (status change) before
+        # anyone — including an admin — can post to it again.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ErrorMessages.TICKET_ALREADY_CLOSED,
+        )
 
     files = await resolve_attachment_files(
         session,
@@ -198,7 +206,9 @@ async def reply_ticket_admin_service(
         # empty collection cached when the message was created.
         session.expire(message, ["attachments"])
 
-    update_data: dict = {"status": TicketStatus.PENDING.value}
+    # An admin reply marks the ticket answered (awaiting the user) and claims
+    # it for the responding admin if nobody owns it yet.
+    update_data: dict = {"status": TicketStatus.ANSWERED.value}
     if ticket.assigned_admin_id is None:
         update_data["assigned_admin_id"] = admin.id
     await update_ticket(session, ticket, update_data)
@@ -226,8 +236,8 @@ async def reply_ticket_admin_service(
     )
     summary = await _admin_summary(session, ticket)
     if summary is not None:
-        await publish_safe(
-            "admin",
+        await publish_feeds(
+            ticket.user_id,
             RealtimeEvent(
                 type=RealtimeEventType.TICKET_UPDATED,
                 ticket_id=ticket.id,
@@ -248,7 +258,7 @@ async def update_ticket_admin_service(
     ticket_id: uuid.UUID,
     payload: AdminTicketUpdate,
     request: Request | None = None,
-) -> AdminTicketDetail:
+) -> AdminTicketResponse:
     """Change a ticket's status, priority, or assignment."""
     ticket = await _load_ticket_or_404(session, ticket_id)
 
@@ -284,4 +294,7 @@ async def update_ticket_admin_service(
 
     await _publish_ticket_update(session, ticket)
 
-    return await _serialize_admin_detail(session, ticket_id)
+    detail = await _serialize_admin_detail(session, ticket_id)
+    return AdminTicketResponse(
+        ticket=detail, message=SuccessMessages.ADMIN_TICKET_UPDATED
+    )

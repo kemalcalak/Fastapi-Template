@@ -79,6 +79,12 @@ class SupportTicket(Base):
         foreign_keys=[user_id],
     )
 
+    # Admin the ticket is currently assigned to (if any), surfaced in the queue.
+    assigned_admin: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[assigned_admin_id],
+    )
+
     # passive_deletes=True defers the cascade to the FK's ON DELETE CASCADE, so
     # deleting a ticket is one DELETE rather than one-per-message.
     messages: Mapped[list["SupportMessage"]] = relationship(

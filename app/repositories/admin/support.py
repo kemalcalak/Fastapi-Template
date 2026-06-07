@@ -66,7 +66,10 @@ async def list_tickets_admin(
     total = (await session.execute(count_stmt)).scalar_one()
 
     list_stmt = (
-        base_stmt.options(selectinload(SupportTicket.user))
+        base_stmt.options(
+            selectinload(SupportTicket.user),
+            selectinload(SupportTicket.assigned_admin),
+        )
         .order_by(SupportTicket.last_message_at.desc())
         .offset(skip)
         .limit(limit)

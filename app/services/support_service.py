@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
-from app.core.realtime import publish_safe
+from app.core.realtime import publish_feeds, publish_safe
 from app.models.support import SupportMessage, SupportTicket
 from app.models.user import User
 from app.repositories.support import (
@@ -157,8 +157,8 @@ async def create_ticket_service(
     )
 
     summary = await _admin_summary(session, ticket, user)
-    await publish_safe(
-        "admin",
+    await publish_feeds(
+        ticket.user_id,
         RealtimeEvent(
             type=RealtimeEventType.TICKET_CREATED,
             ticket_id=ticket.id,
@@ -236,7 +236,8 @@ async def reply_ticket_service(
         await attach_files(session, message_id=message.id, files=files)
         session.expire(message, ["attachments"])
 
-    await update_ticket(session, ticket, {"status": TicketStatus.ANSWERED.value})
+    # A user reply puts the ball back in the support team's court.
+    await update_ticket(session, ticket, {"status": TicketStatus.PENDING.value})
 
     await log_activity(
         session=session,
@@ -260,8 +261,8 @@ async def reply_ticket_service(
         ),
     )
     summary = await _admin_summary(session, ticket, user)
-    await publish_safe(
-        "admin",
+    await publish_feeds(
+        ticket.user_id,
         RealtimeEvent(
             type=RealtimeEventType.TICKET_UPDATED,
             ticket_id=ticket.id,
@@ -305,8 +306,8 @@ async def close_ticket_service(
         f"ticket:{ticket.id}",
         RealtimeEvent(type=RealtimeEventType.TICKET_UPDATED, ticket_id=ticket.id),
     )
-    await publish_safe(
-        "admin",
+    await publish_feeds(
+        ticket.user_id,
         RealtimeEvent(
             type=RealtimeEventType.TICKET_UPDATED,
             ticket_id=ticket.id,

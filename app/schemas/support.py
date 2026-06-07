@@ -151,6 +151,7 @@ class AdminTicketListItem(BaseModel):
     created_at: datetime
     closed_at: datetime | None = None
     assigned_admin_id: uuid.UUID | None = None
+    assigned_admin: SupportTicketUser | None = None
     user: SupportTicketUser
     unread_count: int = 0
 
@@ -168,6 +169,7 @@ class AdminTicketDetail(SupportTicketDetail):
     """Admin view of a ticket: the full thread plus owner/assignment metadata."""
 
     assigned_admin_id: uuid.UUID | None = None
+    assigned_admin: SupportTicketUser | None = None
     user: SupportTicketUser
 
 
@@ -188,6 +190,13 @@ class SupportTicketResponse(BaseModel):
     """Standard response after creating or mutating a ticket."""
 
     ticket: SupportTicketDetail
+    message: str
+
+
+class AdminTicketResponse(BaseModel):
+    """Standard response after an admin mutates a ticket (status/priority/assignment)."""
+
+    ticket: AdminTicketDetail
     message: str
 
 
