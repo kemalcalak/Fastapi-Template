@@ -84,7 +84,7 @@ async def open_ticket(
     subject: str = "Help me",
     body: str = "Something is broken",
     attachment_file_ids: list[str] | None = None,
-) -> dict:
+) -> dict[str, object]:
     """Open a ticket and return the created ticket detail payload."""
     payload: dict[str, object] = {"subject": subject, "body": body}
     if attachment_file_ids is not None:

@@ -5,6 +5,8 @@ status/priority/assignment updates with validation, and the shared-queue
 behaviour where any admin may answer any ticket.
 """
 
+from typing import cast
+
 import pytest
 
 from app.core.messages.error_message import ErrorMessages
@@ -17,9 +19,10 @@ from app.tests.support.conftest import (
 )
 
 
-def user_id_of(ticket: dict) -> str:
+def user_id_of(ticket: dict[str, object]) -> str:
     """Return the owner id from a user-facing ticket payload's first message."""
-    return ticket["messages"][0]["sender_id"]
+    messages = cast("list[dict[str, str]]", ticket["messages"])
+    return messages[0]["sender_id"]
 
 
 @pytest.mark.asyncio

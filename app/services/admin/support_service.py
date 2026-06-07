@@ -14,6 +14,7 @@ from app.repositories.support import (
     add_message,
     attach_files,
     count_unread,
+    count_unread_by_tickets,
     get_message_with_attachments,
     get_ticket,
     get_ticket_with_thread,
@@ -148,12 +149,15 @@ async def list_tickets_admin_service(
         priority=priority,
         assigned_admin_id=assigned_admin_id,
     )
+    unread = await count_unread_by_tickets(
+        session,
+        ticket_ids=[ticket.id for ticket in tickets],
+        reader_role=SenderRole.ADMIN.value,
+    )
     items: list[AdminTicketListItem] = []
     for ticket in tickets:
         item = AdminTicketListItem.model_validate(ticket)
-        item.unread_count = await count_unread(
-            session, ticket_id=ticket.id, reader_role=SenderRole.ADMIN.value
-        )
+        item.unread_count = unread.get(ticket.id, 0)
         items.append(item)
     return AdminTicketListResponse(data=items, total=total, skip=skip, limit=limit)
 
@@ -208,7 +212,7 @@ async def reply_ticket_admin_service(
 
     # An admin reply marks the ticket answered (awaiting the user) and claims
     # it for the responding admin if nobody owns it yet.
-    update_data: dict = {"status": TicketStatus.ANSWERED.value}
+    update_data: dict[str, object] = {"status": TicketStatus.ANSWERED.value}
     if ticket.assigned_admin_id is None:
         update_data["assigned_admin_id"] = admin.id
     await update_ticket(session, ticket, update_data)

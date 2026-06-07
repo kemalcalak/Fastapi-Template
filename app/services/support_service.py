@@ -13,6 +13,7 @@ from app.repositories.support import (
     add_message,
     attach_files,
     count_unread,
+    count_unread_by_tickets,
     create_ticket,
     get_message_with_attachments,
     get_ticket,
@@ -103,7 +104,7 @@ async def _admin_summary(
     )
 
 
-async def can_user_access_ticket(
+async def can_user_access_ticket_service(
     session: AsyncSession, *, user: User, ticket_id: uuid.UUID
 ) -> bool:
     """Return whether ``user`` owns the ticket — the gate for its WebSocket."""
@@ -182,12 +183,15 @@ async def list_my_tickets_service(
     tickets, total = await list_user_tickets(
         session, user_id=user.id, skip=skip, limit=limit, status=status
     )
+    unread = await count_unread_by_tickets(
+        session,
+        ticket_ids=[ticket.id for ticket in tickets],
+        reader_role=SenderRole.USER.value,
+    )
     items: list[SupportTicketListItem] = []
     for ticket in tickets:
         item = SupportTicketListItem.model_validate(ticket)
-        item.unread_count = await count_unread(
-            session, ticket_id=ticket.id, reader_role=SenderRole.USER.value
-        )
+        item.unread_count = unread.get(ticket.id, 0)
         items.append(item)
     return SupportTicketListResponse(data=items, total=total, skip=skip, limit=limit)
 

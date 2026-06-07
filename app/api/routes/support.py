@@ -18,7 +18,7 @@ from app.schemas.support import (
 )
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.support_service import (
-    can_user_access_ticket,
+    can_user_access_ticket_service,
     close_ticket_service,
     create_ticket_service,
     get_my_ticket_service,
@@ -120,6 +120,7 @@ async def reply_ticket(
 
 
 @router.post("/tickets/{ticket_id}/close", response_model=SupportTicketResponse)
+@rate_limit_authenticated("20/minute")
 @audit_unexpected_failure(
     activity_type=ActivityType.UPDATE,
     resource_type=ResourceType.SUPPORT_TICKET,
@@ -152,7 +153,9 @@ async def support_feed_ws(websocket: WebSocket, session: SessionDep) -> None:
         return
 
     async def authorize(ticket_id: uuid.UUID) -> bool:
-        return await can_user_access_ticket(session, user=user, ticket_id=ticket_id)
+        return await can_user_access_ticket_service(
+            session, user=user, ticket_id=ticket_id
+        )
 
     await serve_multiplex(
         websocket, feed_topic=user_topic(user.id), authorize_ticket=authorize

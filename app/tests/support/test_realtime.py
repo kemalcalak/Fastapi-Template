@@ -15,12 +15,12 @@ import pytest
 
 from app.api.deps import get_ws_user
 from app.core import realtime
-from app.core.security import create_access_token
+from app.core.security import create_access_token, get_password_hash
 from app.models.user import User
 from app.repositories.token_blacklist import add_token_to_blacklist
 from app.schemas.support import RealtimeEvent, RealtimeEventType
 from app.services.admin.support_service import ticket_exists_service
-from app.services.support_service import can_user_access_ticket
+from app.services.support_service import can_user_access_ticket_service
 from app.tests.conftest import TestingSessionLocal
 
 
@@ -28,6 +28,7 @@ class StubWebSocket:
     """Minimal WebSocket stand-in capturing the frames sent to it."""
 
     def __init__(self) -> None:
+        """Initialise the stub with an empty captured-frame list."""
         self.frames: list[str] = []
 
     async def send_text(self, data: str) -> None:
@@ -233,7 +234,12 @@ async def test_handle_command_ignores_feed_topics_and_bad_input():
 async def _seed_user(email: str, role: str = "user") -> User:
     """Insert a minimal user row and return it."""
     async with TestingSessionLocal() as session:
-        user = User(email=email, hashed_password="x", role=role, is_active=True)
+        user = User(
+            email=email,
+            hashed_password=get_password_hash("test-password"),
+            role=role,
+            is_active=True,
+        )
         session.add(user)
         await session.commit()
         await session.refresh(user)
@@ -286,11 +292,13 @@ async def test_can_user_access_ticket_gate():
         ticket_id = ticket.id
 
     async with TestingSessionLocal() as session:
-        assert await can_user_access_ticket(session, user=owner, ticket_id=ticket_id)
-        assert not await can_user_access_ticket(
+        assert await can_user_access_ticket_service(
+            session, user=owner, ticket_id=ticket_id
+        )
+        assert not await can_user_access_ticket_service(
             session, user=other, ticket_id=ticket_id
         )
-        assert not await can_user_access_ticket(
+        assert not await can_user_access_ticket_service(
             session, user=owner, ticket_id=uuid.uuid4()
         )
 

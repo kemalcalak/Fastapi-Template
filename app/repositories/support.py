@@ -107,7 +107,7 @@ async def add_message(session: AsyncSession, message: SupportMessage) -> Support
 
 
 async def update_ticket(
-    session: AsyncSession, ticket: SupportTicket, update_data: dict
+    session: AsyncSession, ticket: SupportTicket, update_data: dict[str, object]
 ) -> SupportTicket:
     """Apply a partial update to a ticket and persist it."""
     for key, value in update_data.items():
@@ -166,3 +166,28 @@ async def count_unread(
         )
     )
     return (await session.execute(statement)).scalar_one()
+
+
+async def count_unread_by_tickets(
+    session: AsyncSession, *, ticket_ids: Sequence[uuid.UUID], reader_role: str
+) -> dict[uuid.UUID, int]:
+    """Unread (other-side) message counts for many tickets in one grouped query.
+
+    Avoids the N+1 of calling ``count_unread`` per row in a list view. Tickets
+    with no unread messages are simply absent from the returned mapping.
+    """
+    if not ticket_ids:
+        return {}
+    statement = (
+        select(SupportMessage.ticket_id, func.count())
+        .where(
+            SupportMessage.ticket_id.in_(ticket_ids),
+            SupportMessage.sender_role != reader_role,
+            SupportMessage.read_at.is_(None),
+        )
+        .group_by(SupportMessage.ticket_id)
+    )
+    counts: dict[uuid.UUID, int] = {}
+    for ticket_id, count in (await session.execute(statement)).all():
+        counts[ticket_id] = count
+    return counts

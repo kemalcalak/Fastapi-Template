@@ -133,7 +133,8 @@ async def get_ws_user(websocket: WebSocket, db: AsyncSession) -> User | None:
 
 # Type aliases for dependency injection
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
-TokenDep = Annotated[str, Depends(reusable_oauth2)]
+# reusable_oauth2 uses auto_error=False, so the dependency may resolve to None.
+TokenDep = Annotated[str | None, Depends(reusable_oauth2)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
 CurrentSuperUser = Annotated[User, Depends(get_current_superuser)]

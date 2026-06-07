@@ -37,6 +37,7 @@ class ConnectionManager:
     """In-process map of topic -> set of live WebSocket connections."""
 
     def __init__(self) -> None:
+        """Initialise an empty topic registry guarded by an async lock."""
         self._topics: dict[str, set[WebSocket]] = {}
         self._lock = asyncio.Lock()
 

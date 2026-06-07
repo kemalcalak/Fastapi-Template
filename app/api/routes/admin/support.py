@@ -111,6 +111,7 @@ async def reply_ticket(
 
 
 @router.patch("/tickets/{ticket_id}", response_model=AdminTicketResponse)
+@rate_limit_authenticated("30/minute")
 @audit_unexpected_failure(
     activity_type=ActivityType.UPDATE,
     resource_type=ResourceType.SUPPORT_TICKET,
