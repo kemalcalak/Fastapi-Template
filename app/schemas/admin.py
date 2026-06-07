@@ -109,6 +109,17 @@ class AdminFileListResponse(BaseModel):
     limit: int
 
 
+class AdminActorRef(BaseModel):
+    """Minimal identity of the user who performed an activity."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+
+
 class AdminActivityItem(BaseModel):
     """Row shape returned by the admin activity log endpoint."""
 
@@ -116,6 +127,7 @@ class AdminActivityItem(BaseModel):
 
     id: uuid.UUID
     user_id: uuid.UUID
+    user: AdminActorRef | None = None
     activity_type: ActivityType
     resource_type: ResourceType
     resource_id: uuid.UUID | None = None
@@ -134,6 +146,23 @@ class AdminActivityListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class AdminActivityFilter(BaseModel):
+    """Filter + pagination body for the global activity-log search (POST)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    skip: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=200)
+    user_id: uuid.UUID | None = None
+    user_search: str | None = Field(default=None, max_length=100)
+    activity_type: ActivityType | None = None
+    resource_type: ResourceType | None = None
+    status: ActivityStatus | None = None
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    date_from: datetime | None = None
+    date_to: datetime | None = None
 
 
 class AdminStats(BaseModel):

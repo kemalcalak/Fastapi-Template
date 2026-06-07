@@ -1,13 +1,12 @@
 import uuid
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
 
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentSuperUser, SessionDep
-from app.schemas.admin import AdminActivityListResponse
-from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
+from app.schemas.admin import AdminActivityFilter, AdminActivityListResponse
+from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.activity_service import (
     list_activities_admin_service,
     list_user_activities_admin_service,
@@ -39,36 +38,29 @@ async def list_user_activities(
     )
 
 
-@router.get("/activities", response_model=AdminActivityListResponse)
+@router.post("/activities/search", response_model=AdminActivityListResponse)
 @audit_unexpected_failure(
     activity_type=ActivityType.READ,
     resource_type=ResourceType.ACTIVITY,
-    endpoint="/admin/activities",
+    endpoint="/admin/activities/search",
 )
-async def list_activities(
+async def search_activities(
     _request: Request,
     _admin: CurrentSuperUser,
     session: SessionDep,
-    skip: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    user_id: uuid.UUID | None = None,
-    activity_type: ActivityType | None = None,
-    resource_type: ResourceType | None = None,
-    status_filter: Annotated[ActivityStatus | None, Query(alias="status")] = None,
-    status_code: Annotated[int | None, Query(ge=100, le=599)] = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
+    filters: AdminActivityFilter,
 ) -> AdminActivityListResponse:
-    """Return the global activity log with filters and pagination."""
+    """Return the global activity log; filters + pagination ride the POST body."""
     return await list_activities_admin_service(
         session=session,
-        skip=skip,
-        limit=limit,
-        user_id=user_id,
-        activity_type=activity_type,
-        resource_type=resource_type,
-        status_filter=status_filter,
-        status_code=status_code,
-        date_from=date_from,
-        date_to=date_to,
+        skip=filters.skip,
+        limit=filters.limit,
+        user_id=filters.user_id,
+        user_search=filters.user_search,
+        activity_type=filters.activity_type,
+        resource_type=filters.resource_type,
+        status_filter=filters.status,
+        status_code=filters.status_code,
+        date_from=filters.date_from,
+        date_to=filters.date_to,
     )
