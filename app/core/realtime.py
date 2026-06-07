@@ -9,6 +9,7 @@ in one worker reaches clients connected to any worker.
 Topics are plain strings:
   * ``ticket:{uuid}`` — the thread of a single ticket (its owner + viewing admin)
   * ``admin``         — the global admin feed (new tickets, status changes)
+  * ``user:{uuid}``   — a single user's feed (changes across all their tickets)
 
 The Redis channel is the topic prefixed with ``support:``.
 """
@@ -16,9 +17,12 @@ The Redis channel is the topic prefixed with ``support:``.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import uuid
+from collections.abc import Awaitable, Callable
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.redis import get_redis
 from app.schemas.support import RealtimeEvent
@@ -50,6 +54,19 @@ class ConnectionManager:
             connections.discard(websocket)
             if not connections:
                 self._topics.pop(topic, None)
+
+    async def disconnect_all(self, websocket: WebSocket) -> None:
+        """Remove a WebSocket from every topic it joined (on socket close).
+
+        A multiplexed socket may sit on several topics (its feed plus a ticket
+        thread), so cleanup must sweep them all.
+        """
+        async with self._lock:
+            for topic in list(self._topics.keys()):
+                connections = self._topics[topic]
+                connections.discard(websocket)
+                if not connections:
+                    self._topics.pop(topic, None)
 
     async def broadcast_local(self, topic: str, data: str) -> None:
         """Send a raw text frame to every local WebSocket on ``topic``.
@@ -89,6 +106,96 @@ async def publish_safe(topic: str, event: RealtimeEvent) -> None:
         await publish(topic, event)
     except Exception:  # noqa: BLE001 - realtime is best-effort, never fatal
         logger.exception("Failed to publish realtime event to topic %s", topic)
+
+
+ADMIN_TOPIC = "admin"
+
+
+def user_topic(user_id: uuid.UUID) -> str:
+    """Realtime topic carrying changes across all of a single user's tickets."""
+    return f"user:{user_id}"
+
+
+async def publish_feeds(owner_id: uuid.UUID, event: RealtimeEvent) -> None:
+    """Fan a ticket-summary event out to both the admin queue and its owner's feed.
+
+    Used wherever a ticket changes so the admin queue and the owner's list both
+    refresh live, regardless of which side triggered the change.
+    """
+    await publish_safe(ADMIN_TOPIC, event)
+    await publish_safe(user_topic(owner_id), event)
+
+
+# --- Multiplexed WebSocket serving -----------------------------------------
+
+_TICKET_TOPIC_PREFIX = "ticket:"
+
+# An authorize callback decides whether the caller may join a ticket thread.
+AuthorizeTicket = Callable[[uuid.UUID], Awaitable[bool]]
+
+
+def _parse_ticket_topic(topic: str) -> uuid.UUID | None:
+    """Return the ticket UUID for a ``ticket:{uuid}`` topic, else ``None``."""
+    if not topic.startswith(_TICKET_TOPIC_PREFIX):
+        return None
+    try:
+        return uuid.UUID(topic[len(_TICKET_TOPIC_PREFIX) :])
+    except ValueError:
+        return None
+
+
+async def _handle_command(
+    websocket: WebSocket, raw: str, authorize_ticket: AuthorizeTicket
+) -> None:
+    """Apply one client ``subscribe``/``unsubscribe`` frame to a ticket topic.
+
+    Only ``ticket:{uuid}`` topics are client-controllable, and a subscribe is
+    gated by ``authorize_ticket``; anything else is ignored.
+    """
+    try:
+        message = json.loads(raw)
+    except (ValueError, TypeError):
+        return
+    if not isinstance(message, dict):
+        return
+    action = message.get("action")
+    topic = message.get("topic")
+    if action not in ("subscribe", "unsubscribe") or not isinstance(topic, str):
+        return
+    ticket_id = _parse_ticket_topic(topic)
+    if ticket_id is None:
+        return
+    if action == "subscribe":
+        if await authorize_ticket(ticket_id):
+            await manager.connect(topic, websocket)
+    else:
+        await manager.disconnect(topic, websocket)
+
+
+async def serve_multiplex(
+    websocket: WebSocket,
+    *,
+    feed_topic: str,
+    authorize_ticket: AuthorizeTicket,
+) -> None:
+    """Run a multiplexed support socket: one feed topic plus on-demand tickets.
+
+    The socket is auto-subscribed to ``feed_topic`` (the caller's user or admin
+    feed). The client may then send ``{"action": "subscribe"|"unsubscribe",
+    "topic": "ticket:<uuid>"}`` frames to follow a single ticket thread, gated by
+    ``authorize_ticket``. Every joined topic is dropped when the socket closes.
+    The socket must already be authenticated; it is accepted here.
+    """
+    await websocket.accept()
+    await manager.connect(feed_topic, websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            await _handle_command(websocket, raw, authorize_ticket)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect_all(websocket)
 
 
 async def _listen() -> None:

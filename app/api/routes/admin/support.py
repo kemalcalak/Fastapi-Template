@@ -1,15 +1,16 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Query, Request, WebSocket, status
 
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentSuperUser, SessionDep, get_ws_user
 from app.core.rate_limit import rate_limit_authenticated
-from app.core.realtime import manager
+from app.core.realtime import ADMIN_TOPIC, serve_multiplex
 from app.schemas.support import (
     AdminTicketDetail,
     AdminTicketListResponse,
+    AdminTicketResponse,
     AdminTicketUpdate,
     MessageCreate,
     SupportMessageResponse,
@@ -109,7 +110,7 @@ async def reply_ticket(
     )
 
 
-@router.patch("/tickets/{ticket_id}", response_model=AdminTicketDetail)
+@router.patch("/tickets/{ticket_id}", response_model=AdminTicketResponse)
 @audit_unexpected_failure(
     activity_type=ActivityType.UPDATE,
     resource_type=ResourceType.SUPPORT_TICKET,
@@ -121,7 +122,7 @@ async def update_ticket(
     session: SessionDep,
     ticket_id: uuid.UUID,
     payload: AdminTicketUpdate,
-) -> AdminTicketDetail:
+) -> AdminTicketResponse:
     """Change a ticket's status, priority, or admin assignment."""
     return await update_ticket_admin_service(
         session=session,
@@ -132,55 +133,20 @@ async def update_ticket(
     )
 
 
-async def _accept_admin_ws(websocket: WebSocket, session: SessionDep) -> bool:
-    """Authenticate a WebSocket as an admin, closing it on failure.
+@router.websocket("/ws")
+async def admin_feed_ws(websocket: WebSocket, session: SessionDep) -> None:
+    """One multiplexed socket per admin: the global queue plus any ticket thread.
 
-    Returns True only when the cookie resolves to an active admin; otherwise the
-    socket is closed with 4401 and False is returned.
+    Authenticates the cookie as an active admin, auto-subscribes to the ``admin``
+    feed, then accepts ``subscribe``/``unsubscribe`` frames for any existing
+    ticket. Replaces the old per-ticket admin socket.
     """
     user = await get_ws_user(websocket, session)
     if user is None or user.role != SystemRole.ADMIN.value:
         await websocket.close(code=_WS_POLICY_VIOLATION)
-        return False
-    return True
-
-
-@router.websocket("/ws")
-async def admin_feed_ws(websocket: WebSocket, session: SessionDep) -> None:
-    """Stream the global admin feed: new tickets and status changes."""
-    if not await _accept_admin_ws(websocket, session):
         return
 
-    topic = "admin"
-    await websocket.accept()
-    await manager.connect(topic, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        await manager.disconnect(topic, websocket)
+    async def authorize(ticket_id: uuid.UUID) -> bool:
+        return await ticket_exists_service(session, ticket_id)
 
-
-@router.websocket("/tickets/{ticket_id}/ws")
-async def admin_ticket_ws(
-    websocket: WebSocket, ticket_id: uuid.UUID, session: SessionDep
-) -> None:
-    """Stream realtime events for a single ticket as an admin."""
-    if not await _accept_admin_ws(websocket, session):
-        return
-    if not await ticket_exists_service(session, ticket_id):
-        await websocket.close(code=_WS_POLICY_VIOLATION)
-        return
-
-    topic = f"ticket:{ticket_id}"
-    await websocket.accept()
-    await manager.connect(topic, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        await manager.disconnect(topic, websocket)
+    await serve_multiplex(websocket, feed_topic=ADMIN_TOPIC, authorize_ticket=authorize)

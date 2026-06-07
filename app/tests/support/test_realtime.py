@@ -7,6 +7,7 @@ socket through the ASGI stack.
 """
 
 import asyncio
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -95,6 +96,135 @@ async def test_publish_listener_roundtrip():
 
     assert len(ws.frames) == 1
     assert RealtimeEventType.MESSAGE_CREATED.value in ws.frames[0]
+
+
+def test_user_topic_format():
+    """The user-feed topic is namespaced by the user id."""
+    uid = uuid.uuid4()
+    assert realtime.user_topic(uid) == f"user:{uid}"
+
+
+@pytest.mark.asyncio
+async def test_publish_feeds_reaches_admin_and_owner():
+    """publish_feeds fans one event out to both the admin queue and the owner."""
+    owner_id = uuid.uuid4()
+    admin_ws = StubWebSocket()
+    owner_ws = StubWebSocket()
+    owner_feed = realtime.user_topic(owner_id)
+    await realtime.manager.connect("admin", admin_ws)
+    await realtime.manager.connect(owner_feed, owner_ws)
+    await realtime.start_realtime()
+    try:
+        await asyncio.sleep(0.1)
+        await realtime.publish_feeds(
+            owner_id,
+            RealtimeEvent(
+                type=RealtimeEventType.TICKET_UPDATED, ticket_id=uuid.uuid4()
+            ),
+        )
+        for _ in range(50):
+            if admin_ws.frames and owner_ws.frames:
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        await realtime.stop_realtime()
+        await realtime.manager.disconnect("admin", admin_ws)
+        await realtime.manager.disconnect(owner_feed, owner_ws)
+
+    assert len(admin_ws.frames) == 1
+    assert len(owner_ws.frames) == 1
+
+
+# --- Multiplex command handling --------------------------------------------
+
+
+async def _allow(_ticket_id: uuid.UUID) -> bool:
+    """Authorize callback that always grants the subscription."""
+    return True
+
+
+async def _deny(_ticket_id: uuid.UUID) -> bool:
+    """Authorize callback that always refuses the subscription."""
+    return False
+
+
+def test_parse_ticket_topic():
+    """Only well-formed ``ticket:{uuid}`` topics resolve to an id."""
+    tid = uuid.uuid4()
+    assert realtime._parse_ticket_topic(f"ticket:{tid}") == tid
+    assert realtime._parse_ticket_topic("admin") is None
+    assert realtime._parse_ticket_topic(f"user:{tid}") is None
+    assert realtime._parse_ticket_topic("ticket:not-a-uuid") is None
+
+
+@pytest.mark.asyncio
+async def test_disconnect_all_clears_every_topic():
+    """disconnect_all removes a socket from every topic it joined."""
+    manager = realtime.ConnectionManager()
+    ws = StubWebSocket()
+    await manager.connect("admin", ws)
+    await manager.connect("ticket:x", ws)
+
+    await manager.disconnect_all(ws)
+
+    await manager.broadcast_local("admin", "a")
+    await manager.broadcast_local("ticket:x", "b")
+    assert ws.frames == []
+
+
+@pytest.mark.asyncio
+async def test_handle_command_subscribe_authorized_then_unsubscribe():
+    """An authorized subscribe joins the ticket topic; unsubscribe leaves it."""
+    ws = StubWebSocket()
+    ticket_id = uuid.uuid4()
+    topic = f"ticket:{ticket_id}"
+    try:
+        await realtime._handle_command(
+            ws, json.dumps({"action": "subscribe", "topic": topic}), _allow
+        )
+        await realtime.manager.broadcast_local(topic, "hit")
+        assert ws.frames == ["hit"]
+
+        await realtime._handle_command(
+            ws, json.dumps({"action": "unsubscribe", "topic": topic}), _allow
+        )
+        await realtime.manager.broadcast_local(topic, "after")
+        assert ws.frames == ["hit"]
+    finally:
+        await realtime.manager.disconnect_all(ws)
+
+
+@pytest.mark.asyncio
+async def test_handle_command_subscribe_denied():
+    """A denied subscribe never joins the topic."""
+    ws = StubWebSocket()
+    topic = f"ticket:{uuid.uuid4()}"
+    try:
+        await realtime._handle_command(
+            ws, json.dumps({"action": "subscribe", "topic": topic}), _deny
+        )
+        await realtime.manager.broadcast_local(topic, "hit")
+        assert ws.frames == []
+    finally:
+        await realtime.manager.disconnect_all(ws)
+
+
+@pytest.mark.asyncio
+async def test_handle_command_ignores_feed_topics_and_bad_input():
+    """Non-ticket topics and malformed frames are ignored (no subscription)."""
+    ws = StubWebSocket()
+    try:
+        # Feed topics are server-controlled — a client can't self-subscribe.
+        await realtime._handle_command(
+            ws, json.dumps({"action": "subscribe", "topic": "admin"}), _allow
+        )
+        await realtime.manager.broadcast_local("admin", "x")
+        # Malformed frames must not raise.
+        await realtime._handle_command(ws, "not-json", _allow)
+        await realtime._handle_command(ws, json.dumps(["a"]), _allow)
+        assert ws.frames == []
+    finally:
+        await realtime.manager.disconnect_all(ws)
 
 
 # --- WebSocket auth / ownership gates --------------------------------------

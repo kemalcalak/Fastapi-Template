@@ -1,12 +1,12 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Query, Request, WebSocket, status
 
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentActiveUser, SessionDep, get_ws_user
 from app.core.rate_limit import rate_limit_authenticated, rate_limit_strict
-from app.core.realtime import manager
+from app.core.realtime import serve_multiplex, user_topic
 from app.schemas.support import (
     MessageCreate,
     SupportMessageResponse,
@@ -137,31 +137,23 @@ async def close_ticket(
     )
 
 
-@router.websocket("/tickets/{ticket_id}/ws")
-async def ticket_ws(
-    websocket: WebSocket, ticket_id: uuid.UUID, session: SessionDep
-) -> None:
-    """Stream realtime events for one of the caller's tickets.
+@router.websocket("/ws")
+async def support_feed_ws(websocket: WebSocket, session: SessionDep) -> None:
+    """One multiplexed socket per user: their feed plus any ticket they own.
 
-    Authenticates from the ``access_token`` cookie, verifies ownership, then
-    relays every event published to ``ticket:{id}``. Inbound frames are ignored
-    (the socket is push-only) and serve only as a disconnect signal.
+    Authenticates from the ``access_token`` cookie, auto-subscribes to the
+    caller's feed (``user:{id}``), then accepts ``subscribe``/``unsubscribe``
+    frames for ``ticket:{id}`` threads they own. Replaces the old per-ticket
+    socket so the whole session rides one connection.
     """
     user = await get_ws_user(websocket, session)
     if user is None:
         await websocket.close(code=_WS_POLICY_VIOLATION)
         return
-    if not await can_user_access_ticket(session, user=user, ticket_id=ticket_id):
-        await websocket.close(code=_WS_POLICY_VIOLATION)
-        return
 
-    topic = f"ticket:{ticket_id}"
-    await websocket.accept()
-    await manager.connect(topic, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        await manager.disconnect(topic, websocket)
+    async def authorize(ticket_id: uuid.UUID) -> bool:
+        return await can_user_access_ticket(session, user=user, ticket_id=ticket_id)
+
+    await serve_multiplex(
+        websocket, feed_topic=user_topic(user.id), authorize_ticket=authorize
+    )
