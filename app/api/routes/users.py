@@ -8,12 +8,13 @@ from app.core.rate_limit import rate_limit_strict
 from app.schemas.msg import Message
 from app.schemas.user import (
     DeleteAccount,
-    UserPublic,
+    UserMe,
     UserUpdateMe,
     UserUpdateResponse,
 )
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.user_service import (
+    build_user_me_service,
     deactivate_own_account_service,
     reactivate_own_account_service,
     update_user_service,
@@ -22,10 +23,10 @@ from app.services.user_service import (
 router = APIRouter()
 
 
-@router.get("/me", response_model=UserPublic)
-async def read_user_me(current_user: CurrentUser) -> UserPublic:
-    """Get current user."""
-    return current_user
+@router.get("/me", response_model=UserMe)
+async def read_user_me(current_user: CurrentUser, session: SessionDep) -> UserMe:
+    """Get current user; admins also receive their RBAC permissions."""
+    return await build_user_me_service(session=session, user=current_user)
 
 
 @router.patch("/me", response_model=UserUpdateResponse)

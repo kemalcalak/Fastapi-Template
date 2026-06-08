@@ -2,9 +2,18 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+)
 
 from app.core.messages.error_message import ErrorMessages
+from app.schemas.admin_permission import Permission
 from app.schemas.file import FilePublic
 
 
@@ -96,6 +105,26 @@ class UserPublic(UserBase):
     deletion_scheduled_at: datetime | None = None
     suspended_at: datetime | None = None
     avatar_file: FilePublic | None = None
+
+
+class UserMe(UserPublic):
+    """``/users/me`` payload: ``UserPublic`` plus RBAC permissions for admins.
+
+    ``permissions`` is filled only for admins (superadmins get every key). For
+    normal users it stays ``None`` and the serializer drops it entirely, so the
+    field never reaches the client rather than surfacing as ``null``.
+    """
+
+    permissions: list[Permission] | None = None
+
+    @model_serializer(mode="wrap")
+    def _drop_null_permissions(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        data = handler(self)
+        if self.permissions is None:
+            data.pop("permissions", None)
+        return data
 
 
 class UserUpdateResponse(BaseModel):
