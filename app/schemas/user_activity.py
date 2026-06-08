@@ -27,6 +27,7 @@ class ResourceType(StrEnum):
     AUTH = "auth"
     FILE = "file"
     ACTIVITY = "activity"
+    SUPPORT_TICKET = "support_ticket"
 
 
 class ActivityStatus(StrEnum):

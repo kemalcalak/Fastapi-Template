@@ -51,14 +51,76 @@ async def test_list_activities_global_filters(admin_client: AsyncClient):
         )
         await session.commit()
 
-    response = await admin_client.get("/admin/activities?limit=100")
+    response = await admin_client.post("/admin/activities/search", json={"limit": 100})
     assert response.status_code == 200
     body = response.json()
     assert body["total"] >= 1
 
-    response = await admin_client.get("/admin/activities?status=failure")
+    response = await admin_client.post(
+        "/admin/activities/search", json={"status": "failure"}
+    )
     body = response.json()
     assert all(item["status"] == "failure" for item in body["data"])
+
+
+@pytest.mark.asyncio
+async def test_activity_rows_embed_the_actor(admin_client: AsyncClient):
+    """Each activity row carries the acting user's identity (email/name)."""
+    async with TestingSessionLocal() as session:
+        admin = (
+            (await session.execute(select(User).where(User.email == "admin@test.com")))
+            .scalars()
+            .one()
+        )
+        admin_id = str(admin.id)
+        session.add(
+            UserActivity(
+                user_id=admin.id,
+                activity_type="login",
+                resource_type="auth",
+                details={},
+                status="success",
+            )
+        )
+        await session.commit()
+
+    response = await admin_client.post("/admin/activities/search", json={"limit": 100})
+    assert response.status_code == 200
+    row = next(r for r in response.json()["data"] if r["user_id"] == admin_id)
+    assert row["user"] is not None
+    assert row["user"]["email"] == "admin@test.com"
+
+
+@pytest.mark.asyncio
+async def test_search_activities_by_actor_name_or_email(admin_client: AsyncClient):
+    """The user_search filter matches activities by the actor's name/email."""
+    async with TestingSessionLocal() as session:
+        admin = (
+            (await session.execute(select(User).where(User.email == "admin@test.com")))
+            .scalars()
+            .one()
+        )
+        session.add(
+            UserActivity(
+                user_id=admin.id,
+                activity_type="login",
+                resource_type="auth",
+                details={},
+                status="success",
+            )
+        )
+        await session.commit()
+
+    match = await admin_client.post(
+        "/admin/activities/search", json={"user_search": "admin@test"}
+    )
+    assert match.status_code == 200
+    assert match.json()["total"] >= 1
+
+    miss = await admin_client.post(
+        "/admin/activities/search", json={"user_search": "no-such-actor-xyz"}
+    )
+    assert miss.json()["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -92,7 +154,9 @@ async def test_list_activities_status_code_filter(admin_client: AsyncClient):
         )
         await session.commit()
 
-    response = await admin_client.get("/admin/activities?status_code=401&limit=100")
+    response = await admin_client.post(
+        "/admin/activities/search", json={"status_code": 401, "limit": 100}
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["data"], "expected at least one row with status_code 401"

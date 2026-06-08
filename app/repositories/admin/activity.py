@@ -2,10 +2,12 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import Select
 
+from app.models.user import User
 from app.models.user_activity import UserActivity
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 
@@ -13,6 +15,7 @@ from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 def _filtered_activities_stmt(
     *,
     user_id: uuid.UUID | None,
+    user_search: str | None,
     activity_type: ActivityType | None,
     resource_type: ResourceType | None,
     status: ActivityStatus | None,
@@ -24,6 +27,17 @@ def _filtered_activities_stmt(
     stmt = select(UserActivity)
     if user_id is not None:
         stmt = stmt.where(UserActivity.user_id == user_id)
+    if user_search:
+        # Match the acting user by name/email. ILIKE on raw columns so the
+        # pg_trgm indexes on email/first_name/last_name can serve the query.
+        like = f"%{user_search}%"
+        stmt = stmt.join(User, UserActivity.user_id == User.id).where(
+            or_(
+                User.email.ilike(like),
+                User.first_name.ilike(like),
+                User.last_name.ilike(like),
+            )
+        )
     if activity_type is not None:
         stmt = stmt.where(UserActivity.activity_type == activity_type.value)
     if resource_type is not None:
@@ -45,6 +59,7 @@ async def list_activities_admin(
     skip: int = 0,
     limit: int = 50,
     user_id: uuid.UUID | None = None,
+    user_search: str | None = None,
     activity_type: ActivityType | None = None,
     resource_type: ResourceType | None = None,
     status: ActivityStatus | None = None,
@@ -55,6 +70,7 @@ async def list_activities_admin(
     """Return a filtered, paginated activity page plus the matching total count."""
     base_stmt = _filtered_activities_stmt(
         user_id=user_id,
+        user_search=user_search,
         activity_type=activity_type,
         resource_type=resource_type,
         status=status,
@@ -69,7 +85,10 @@ async def list_activities_admin(
     total = (await session.execute(count_stmt)).scalar_one()
 
     rows_stmt = (
-        base_stmt.order_by(UserActivity.created_at.desc()).offset(skip).limit(limit)
+        base_stmt.options(selectinload(UserActivity.user))
+        .order_by(UserActivity.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     activities = (await session.execute(rows_stmt)).scalars().all()
 
