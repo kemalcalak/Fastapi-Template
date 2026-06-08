@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentSuperUser, SessionDep
+from app.api.deps import CurrentAdminUser, SessionDep
 from app.schemas.admin import AdminActivityFilter, AdminActivityListResponse
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.activity_service import (
@@ -23,7 +23,7 @@ router = APIRouter()
 )
 async def list_user_activities(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
     skip: Annotated[int, Query(ge=0)] = 0,
@@ -46,7 +46,7 @@ async def list_user_activities(
 )
 async def search_activities(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     filters: AdminActivityFilter,
 ) -> AdminActivityListResponse:

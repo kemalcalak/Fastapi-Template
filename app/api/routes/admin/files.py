@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentSuperUser, SessionDep
+from app.api.deps import CurrentAdminUser, SessionDep
 from app.schemas.admin import AdminFileListItem, AdminFileListResponse
 from app.schemas.msg import Message
 from app.schemas.user_activity import ActivityType, ResourceType
@@ -25,7 +25,7 @@ router = APIRouter()
 )
 async def list_files(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -54,7 +54,7 @@ async def list_files(
 )
 async def get_file(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     file_id: uuid.UUID,
 ) -> AdminFileListItem:
@@ -70,7 +70,7 @@ async def get_file(
 )
 async def delete_file(
     request: Request,
-    current_user: CurrentSuperUser,
+    current_user: CurrentAdminUser,
     session: SessionDep,
     file_id: uuid.UUID,
 ) -> Message:

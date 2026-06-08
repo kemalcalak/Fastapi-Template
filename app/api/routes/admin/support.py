@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request, WebSocket, status
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentSuperUser, SessionDep, get_ws_user
+from app.api.deps import CurrentAdminUser, SessionDep, get_ws_user
 from app.core.rate_limit import rate_limit_authenticated
 from app.core.realtime import ADMIN_TOPIC, serve_multiplex
 from app.schemas.support import (
@@ -45,7 +45,7 @@ _WS_POLICY_VIOLATION = 1008
 )
 async def list_tickets(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -74,7 +74,7 @@ async def list_tickets(
 )
 async def get_ticket(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     ticket_id: uuid.UUID,
 ) -> AdminTicketDetail:
@@ -95,7 +95,7 @@ async def get_ticket(
 )
 async def reply_ticket(
     request: Request,
-    admin: CurrentSuperUser,
+    admin: CurrentAdminUser,
     session: SessionDep,
     ticket_id: uuid.UUID,
     payload: MessageCreate,
@@ -119,7 +119,7 @@ async def reply_ticket(
 )
 async def update_ticket(
     request: Request,
-    admin: CurrentSuperUser,
+    admin: CurrentAdminUser,
     session: SessionDep,
     ticket_id: uuid.UUID,
     payload: AdminTicketUpdate,

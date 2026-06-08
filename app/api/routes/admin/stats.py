@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentSuperUser, SessionDep
+from app.api.deps import CurrentAdminUser, SessionDep
 from app.schemas.admin import AdminStats
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.stats_service import get_admin_stats_service
@@ -17,7 +17,7 @@ router = APIRouter()
 )
 async def get_stats(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
 ) -> AdminStats:
     """Return aggregate dashboard counts in a single round-trip."""

@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentSuperUser, SessionDep
+from app.api.deps import CurrentAdminUser, SessionDep
 from app.core.messages.success_message import SuccessMessages
 from app.core.rate_limit import rate_limit_strict
 from app.schemas.admin import (
@@ -37,7 +37,7 @@ router = APIRouter()
 )
 async def list_users(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -66,7 +66,7 @@ async def list_users(
 )
 async def get_user(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
 ) -> AdminUserListItem:
@@ -82,7 +82,7 @@ async def get_user(
 )
 async def update_user(
     request: Request,
-    current_user: CurrentSuperUser,
+    current_user: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
     payload: AdminUserUpdate,
@@ -108,7 +108,7 @@ async def update_user(
 )
 async def suspend_user(
     request: Request,
-    current_user: CurrentSuperUser,
+    current_user: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
 ) -> Message:
@@ -129,7 +129,7 @@ async def suspend_user(
 )
 async def unsuspend_user(
     request: Request,
-    current_user: CurrentSuperUser,
+    current_user: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
 ) -> Message:
@@ -150,7 +150,7 @@ async def unsuspend_user(
 )
 async def delete_user(
     request: Request,
-    current_user: CurrentSuperUser,
+    current_user: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
 ) -> Message:
@@ -172,7 +172,7 @@ async def delete_user(
 )
 async def change_user_password(
     request: Request,
-    current_user: CurrentSuperUser,
+    current_user: CurrentAdminUser,
     session: SessionDep,
     user_id: uuid.UUID,
     lang: Language = Language.EN,

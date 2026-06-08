@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, WebSocket, status
@@ -12,8 +12,10 @@ from app.core.db import AsyncSessionLocal
 from app.core.messages.error_message import ErrorMessages
 from app.core.security import verify_token
 from app.models.user import User
+from app.repositories.admin.permission import has_permission
 from app.repositories.token_blacklist import is_token_blacklisted
 from app.repositories.user import get_user_by_id
+from app.schemas.admin_permission import Permission
 from app.schemas.token import TokenPayload
 from app.schemas.user import SystemRole
 
@@ -91,14 +93,26 @@ def get_current_active_user(
     return current_user
 
 
-def get_current_superuser(
+def get_current_admin_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> User:
-    """Require the caller to be an active system admin."""
-    if current_user.role != SystemRole.ADMIN:
+    """Require an active admin or superadmin — the admin-panel access gate."""
+    if current_user.role not in (SystemRole.ADMIN, SystemRole.SUPERADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
+        )
+    return current_user
+
+
+def get_current_superadmin(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> User:
+    """Require an active superadmin (admin management is superadmin-only)."""
+    if current_user.role != SystemRole.SUPERADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.ONLY_SUPERADMIN_ALLOWED,
         )
     return current_user
 
@@ -137,4 +151,26 @@ SessionDep = Annotated[AsyncSession, Depends(get_db)]
 TokenDep = Annotated[str | None, Depends(reusable_oauth2)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
-CurrentSuperUser = Annotated[User, Depends(get_current_superuser)]
+CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]
+CurrentSuperAdmin = Annotated[User, Depends(get_current_superadmin)]
+
+
+def require_permission(permission: Permission) -> Callable[..., Awaitable[User]]:
+    """Build a dependency that enforces a single RBAC permission.
+
+    The returned dependency inherits auth, active-account, and admin-role checks
+    from ``CurrentAdminUser``. Superadmins bypass the grant lookup; plain admins
+    must hold ``permission`` in ``admin_permission`` or receive a 403.
+    """
+
+    async def _require(admin: CurrentAdminUser, session: SessionDep) -> User:
+        if admin.role == SystemRole.SUPERADMIN:
+            return admin
+        if not await has_permission(session, admin.id, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
+            )
+        return admin
+
+    return _require
