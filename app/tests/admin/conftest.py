@@ -64,9 +64,7 @@ async def grant_permissions(email: str, permissions: list[Permission]) -> None:
         result = await session.execute(select(User).where(User.email == email))
         user = result.scalars().one()
         for permission in permissions:
-            session.add(
-                AdminPermission(user_id=user.id, permission=permission.value)
-            )
+            session.add(AdminPermission(user_id=user.id, permission=permission.value))
         await session.commit()
 
 
@@ -103,6 +101,19 @@ async def admin_client(client: AsyncClient) -> AsyncClient:
     await promote_to_admin("admin@test.com")
     await grant_all_permissions("admin@test.com")
     await login(client, "admin@test.com")
+    return client
+
+
+@pytest.fixture
+async def superadmin_client(client: AsyncClient) -> AsyncClient:
+    """Return an authenticated superadmin client.
+
+    Superadmins bypass the per-permission gate and are the only role allowed to
+    change an admin's role, so role-management tests drive their actor here.
+    """
+    await register_and_verify(client, "superadmin@test.com")
+    await promote_to_superadmin("superadmin@test.com")
+    await login(client, "superadmin@test.com")
     return client
 
 

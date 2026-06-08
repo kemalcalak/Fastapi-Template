@@ -275,14 +275,20 @@ async def test_admin_cannot_demote_self(admin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_demote_non_last_admin_succeeds(admin_client: AsyncClient):
-    """A second admin can be demoted when another active admin still remains."""
-    await register_and_verify(admin_client, "second-admin@test.com")
-    await promote_to_admin("second-admin@test.com")
-    second_admin_id = await get_user_id("second-admin@test.com")
+async def test_demote_non_last_admin_succeeds(superadmin_client: AsyncClient):
+    """A superadmin can demote an admin while another active admin still remains.
 
-    response = await admin_client.patch(
-        f"/admin/users/{second_admin_id}",
+    Only superadmins may change an admin's role, so the actor is a superadmin;
+    two admins are seeded so the demoted one is not the last.
+    """
+    await register_and_verify(superadmin_client, "admin-a@test.com")
+    await promote_to_admin("admin-a@test.com")
+    await register_and_verify(superadmin_client, "admin-b@test.com")
+    await promote_to_admin("admin-b@test.com")
+    admin_b_id = await get_user_id("admin-b@test.com")
+
+    response = await superadmin_client.patch(
+        f"/admin/users/{admin_b_id}",
         json={"role": SystemRole.USER.value},
     )
     assert response.status_code == 200

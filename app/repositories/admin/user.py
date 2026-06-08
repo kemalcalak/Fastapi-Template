@@ -88,3 +88,18 @@ async def is_last_active_admin(session: AsyncSession, user_id: uuid.UUID) -> boo
     )
     other_admins = (await session.execute(stmt)).scalar_one()
     return other_admins == 0
+
+
+async def is_last_active_superadmin(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Return True if ``user_id`` is the only remaining active superadmin."""
+    stmt = (
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.role == SystemRole.SUPERADMIN.value,
+            User.is_active.is_(True),
+            User.id != user_id,
+        )
+    )
+    other_superadmins = (await session.execute(stmt)).scalar_one()
+    return other_superadmins == 0
