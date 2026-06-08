@@ -65,6 +65,16 @@ async def list_users_admin(
     return users, total
 
 
+async def list_admins(session: AsyncSession) -> Sequence[User]:
+    """Return all admin and superadmin accounts, newest first."""
+    stmt = (
+        select(User)
+        .where(User.role.in_([SystemRole.ADMIN.value, SystemRole.SUPERADMIN.value]))
+        .order_by(User.created_at.desc())
+    )
+    return (await session.execute(stmt)).scalars().all()
+
+
 async def superadmin_exists(session: AsyncSession) -> bool:
     """Return True if at least one superadmin account exists."""
     stmt = (

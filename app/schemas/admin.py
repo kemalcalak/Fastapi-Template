@@ -3,6 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.admin_permission import Permission
 from app.schemas.common import ActivityDetails
 from app.schemas.file import FileCategory, FilePublic
 from app.schemas.user import SystemRole
@@ -173,3 +174,60 @@ class AdminStats(BaseModel):
     users_verified: int
     users_admins: int
     activities_total: int
+
+
+# --- Admin / RBAC management ------------------------------------------------
+
+
+class AdminListItem(BaseModel):
+    """An admin- or superadmin-tier account with the permissions it holds.
+
+    Built explicitly by the service (not via ``from_attributes``) so it never
+    touches the lazy ``User.permissions`` relationship. Superadmins are reported
+    as holding every permission for display, mirroring their implicit access.
+    """
+
+    id: uuid.UUID
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    role: SystemRole
+    is_active: bool
+    permissions: list[Permission] = Field(default_factory=list)
+
+
+class AdminListResponse(BaseModel):
+    """Listing of every admin-tier account."""
+
+    data: list[AdminListItem]
+    total: int
+
+
+class AdminPromote(BaseModel):
+    """Promote an existing user to admin with an initial permission set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+    permissions: list[Permission] = Field(default_factory=list)
+
+
+class AdminPermissionsUpdate(BaseModel):
+    """Replace an admin's permission grants with exactly this set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    permissions: list[Permission]
+
+
+class AdminMutationResponse(BaseModel):
+    """Standard response after creating or updating an admin."""
+
+    admin: AdminListItem
+    message: str
+
+
+class PermissionCatalogResponse(BaseModel):
+    """Every assignable RBAC permission key, for building the grant UI."""
+
+    permissions: list[Permission]
