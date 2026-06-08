@@ -9,6 +9,7 @@ from app.api.deps import (
     get_ws_user,
     require_permission,
     require_permissions,
+    user_has_permission,
 )
 from app.core.rate_limit import rate_limit_authenticated
 from app.core.realtime import ADMIN_TOPIC, serve_multiplex
@@ -24,7 +25,6 @@ from app.schemas.support import (
     TicketPriority,
     TicketStatus,
 )
-from app.schemas.user import SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.support_service import (
     get_ticket_admin_service,
@@ -161,12 +161,15 @@ async def update_ticket(
 async def admin_feed_ws(websocket: WebSocket, session: SessionDep) -> None:
     """One multiplexed socket per admin: the global queue plus any ticket thread.
 
-    Authenticates the cookie as an active admin, auto-subscribes to the ``admin``
-    feed, then accepts ``subscribe``/``unsubscribe`` frames for any existing
-    ticket. Replaces the old per-ticket admin socket.
+    Authenticates the cookie as an admin holding ``support:read`` (superadmins
+    bypass the grant), auto-subscribes to the ``admin`` feed, then accepts
+    ``subscribe``/``unsubscribe`` frames for any existing ticket. Replaces the
+    old per-ticket admin socket.
     """
     user = await get_ws_user(websocket, session)
-    if user is None or user.role != SystemRole.ADMIN.value:
+    if user is None or not await user_has_permission(
+        session, user, Permission.SUPPORT_READ
+    ):
         await websocket.close(code=_WS_POLICY_VIOLATION)
         return
 

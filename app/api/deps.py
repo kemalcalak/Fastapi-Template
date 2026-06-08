@@ -155,25 +155,35 @@ CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]
 CurrentSuperAdmin = Annotated[User, Depends(get_current_superadmin)]
 
 
+async def user_has_permission(
+    session: AsyncSession, user: User, permission: Permission
+) -> bool:
+    """Return whether ``user`` may exercise ``permission`` (superadmin bypass).
+
+    The admin-role gate lives here so the answer is safe even if a non-admin
+    ever reaches it — a demoted account whose grant rows linger, or a caller
+    that skips ``CurrentAdminUser``. Superadmins always pass; plain admins must
+    hold the grant; anyone else is denied. This is the non-raising counterpart
+    to ``ensure_permission`` for callers that branch instead of aborting (e.g. a
+    WebSocket handshake that closes with a policy code).
+    """
+    if user.role == SystemRole.SUPERADMIN:
+        return True
+    if user.role != SystemRole.ADMIN:
+        return False
+    return await has_permission(session, user.id, permission)
+
+
 async def ensure_permission(
     session: AsyncSession, user: User, permission: Permission
 ) -> None:
     """Raise 403 unless ``user`` is a superadmin or an admin holding the grant.
 
-    The admin-role gate is enforced here too — not only by the calling
-    dependency — so the check stays safe even if a non-admin ever reaches it:
-    a demoted account whose grant rows still linger, or a future caller that
-    skips the ``CurrentAdminUser`` dependency. Superadmins bypass the grant
-    lookup; plain admins must hold ``permission``; anyone else is rejected.
+    Shared by ``require_permission`` and the payload-aware authorization
+    dependencies in the admin routes, so the superadmin-bypass rule and the
+    grant lookup live in exactly one place.
     """
-    if user.role == SystemRole.SUPERADMIN:
-        return
-    if user.role != SystemRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
-        )
-    if not await has_permission(session, user.id, permission):
+    if not await user_has_permission(session, user, permission):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
