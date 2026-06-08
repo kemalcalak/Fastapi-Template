@@ -107,6 +107,21 @@ async def test_list_only_my_tickets(client_factory: ClientFactory):
 
 
 @pytest.mark.asyncio
+async def test_list_search_matches_subject(client_factory: ClientFactory):
+    """Search narrows the caller's own tickets by subject (case-insensitive)."""
+    user = await make_user_client(client_factory, "u1@test.com")
+    await open_ticket(user, subject="Payment issue")
+    await open_ticket(user, subject="Login problem")
+
+    response = await user.get("/support/tickets?search=payment")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["data"][0]["subject"] == "Payment issue"
+
+
+@pytest.mark.asyncio
 async def test_get_other_users_ticket_forbidden(client_factory: ClientFactory):
     """Reading a ticket you do not own returns 403."""
     owner = await make_user_client(client_factory, "owner@test.com")

@@ -64,11 +64,18 @@ async def list_user_tickets(
     skip: int = 0,
     limit: int = 50,
     status: str | None = None,
+    search: str | None = None,
 ) -> tuple[Sequence[SupportTicket], int]:
-    """Return a user's own tickets (newest activity first) plus total count."""
+    """Return a user's own tickets (newest activity first) plus total count.
+
+    ``search`` matches the ticket subject only — these are the caller's own
+    tickets, so the owner email/name search used on the admin queue is moot.
+    """
     base_stmt = select(SupportTicket).where(SupportTicket.user_id == user_id)
     if status is not None:
         base_stmt = base_stmt.where(SupportTicket.status == status)
+    if search:
+        base_stmt = base_stmt.where(SupportTicket.subject.ilike(f"%{search}%"))
 
     count_stmt = base_stmt.with_only_columns(
         func.count(), maintain_column_froms=True

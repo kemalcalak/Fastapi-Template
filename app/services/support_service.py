@@ -178,10 +178,11 @@ async def list_my_tickets_service(
     skip: int,
     limit: int,
     status: str | None,
+    search: str | None = None,
 ) -> SupportTicketListResponse:
     """Return the caller's own tickets with per-ticket unread counts."""
     tickets, total = await list_user_tickets(
-        session, user_id=user.id, skip=skip, limit=limit, status=status
+        session, user_id=user.id, skip=skip, limit=limit, status=status, search=search
     )
     unread = await count_unread_by_tickets(
         session,

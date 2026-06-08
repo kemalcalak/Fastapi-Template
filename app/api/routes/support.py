@@ -67,6 +67,7 @@ async def list_my_tickets(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     status_filter: Annotated[TicketStatus | None, Query(alias="status")] = None,
+    search: Annotated[str | None, Query(max_length=200)] = None,
 ) -> SupportTicketListResponse:
     """List the caller's own tickets, newest activity first."""
     return await list_my_tickets_service(
@@ -75,6 +76,7 @@ async def list_my_tickets(
         skip=skip,
         limit=limit,
         status=status_filter.value if status_filter else None,
+        search=search,
     )
 
 
