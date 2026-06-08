@@ -9,6 +9,7 @@ from app.schemas.file import FilePublic
 
 
 class SystemRole(StrEnum):
+    SUPERADMIN = "superadmin"
     ADMIN = "admin"
     USER = "user"
 
