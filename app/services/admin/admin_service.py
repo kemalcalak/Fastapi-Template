@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
+from app.core.realtime import account_topic, publish_safe
 from app.models.user import User
 from app.repositories.admin.permission import (
     get_permissions_for_users,
@@ -12,6 +13,7 @@ from app.repositories.admin.permission import (
 )
 from app.repositories.admin.user import list_admins
 from app.repositories.user import get_user_by_id, update_user
+from app.schemas.account import AccountEvent, AccountEventType
 from app.schemas.admin import (
     AdminListItem,
     AdminListResponse,
@@ -45,6 +47,18 @@ def _effective_permissions(user: User, granted: list[Permission]) -> list[Permis
     if user.role == SystemRole.SUPERADMIN.value:
         return list(Permission)
     return granted
+
+
+async def _notify_permissions_changed(user_id: uuid.UUID) -> None:
+    """Push a best-effort ``permissions_updated`` event to the user's socket.
+
+    The browser uses this as a signal to refetch ``/users/me`` so a permission
+    grant or revoke takes effect immediately without a re-login.
+    """
+    await publish_safe(
+        account_topic(user_id),
+        AccountEvent(type=AccountEventType.PERMISSIONS_UPDATED),
+    )
 
 
 def get_permission_catalog_service() -> PermissionCatalogResponse:
@@ -102,6 +116,7 @@ async def promote_to_admin_service(
         },
         request=request,
     )
+    await _notify_permissions_changed(target.id)
 
     return AdminMutationResponse(
         admin=_to_list_item(target, permissions),
@@ -150,6 +165,7 @@ async def update_admin_permissions_service(
         },
         request=request,
     )
+    await _notify_permissions_changed(target.id)
 
     return AdminMutationResponse(
         admin=_to_list_item(target, permissions),
@@ -193,5 +209,6 @@ async def demote_admin_service(
         details={"action": "demoted_to_user"},
         request=request,
     )
+    await _notify_permissions_changed(target.id)
 
     return Message(success=True, message=SuccessMessages.ADMIN_DEMOTED)
