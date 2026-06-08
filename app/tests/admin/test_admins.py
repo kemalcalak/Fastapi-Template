@@ -30,9 +30,7 @@ async def test_list_admins_reports_superadmin_with_all_permissions(
     response = await superadmin_client.get("/admin/admins")
     assert response.status_code == 200
     rows = response.json()["data"]
-    superadmin_row = next(
-        r for r in rows if r["role"] == SystemRole.SUPERADMIN.value
-    )
+    superadmin_row = next(r for r in rows if r["role"] == SystemRole.SUPERADMIN.value)
     assert set(superadmin_row["permissions"]) == {p.value for p in Permission}
 
 
