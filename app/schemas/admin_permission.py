@@ -13,6 +13,7 @@ class Permission(StrEnum):
 
     USERS_READ = "users:read"
     USERS_WRITE = "users:write"
+    USERS_ROLE = "users:role"
     USERS_DELETE = "users:delete"
     USERS_SUSPEND = "users:suspend"
     USERS_PASSWORD_RESET = "users:password_reset"

@@ -155,6 +155,31 @@ CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]
 CurrentSuperAdmin = Annotated[User, Depends(get_current_superadmin)]
 
 
+async def ensure_permission(
+    session: AsyncSession, user: User, permission: Permission
+) -> None:
+    """Raise 403 unless ``user`` is a superadmin or an admin holding the grant.
+
+    The admin-role gate is enforced here too — not only by the calling
+    dependency — so the check stays safe even if a non-admin ever reaches it:
+    a demoted account whose grant rows still linger, or a future caller that
+    skips the ``CurrentAdminUser`` dependency. Superadmins bypass the grant
+    lookup; plain admins must hold ``permission``; anyone else is rejected.
+    """
+    if user.role == SystemRole.SUPERADMIN:
+        return
+    if user.role != SystemRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
+        )
+    if not await has_permission(session, user.id, permission):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
+        )
+
+
 def require_permission(permission: Permission) -> Callable[..., Awaitable[User]]:
     """Build a dependency that enforces a single RBAC permission.
 
@@ -164,13 +189,52 @@ def require_permission(permission: Permission) -> Callable[..., Awaitable[User]]
     """
 
     async def _require(admin: CurrentAdminUser, session: SessionDep) -> User:
-        if admin.role == SystemRole.SUPERADMIN:
-            return admin
-        if not await has_permission(session, admin.id, permission):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ErrorMessages.INSUFFICIENT_PERMISSIONS,
-            )
+        await ensure_permission(session, admin, permission)
+        return admin
+
+    return _require
+
+
+async def _request_body_fields(request: Request) -> set[str]:
+    """Return the top-level keys present in the request's JSON body.
+
+    Authorization only needs to know which fields the caller is attempting to
+    set, so a non-JSON or malformed body yields an empty set and the endpoint's
+    own validation handles the error. Starlette caches the body, so reading it
+    here does not consume it before the route parses the payload.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - any parse failure means "no fields seen"
+        return set()
+    return set(body) if isinstance(body, dict) else set()
+
+
+def require_permissions(
+    base: Permission,
+    *,
+    conditional: dict[str, Permission] | None = None,
+) -> Callable[..., Awaitable[User]]:
+    """Build a dependency enforcing ``base`` plus field-conditional permissions.
+
+    ``base`` is always required. Each ``field -> permission`` in ``conditional``
+    is additionally required when that field appears in the JSON request body —
+    e.g. ``{"role": USERS_ROLE}`` demands ``users:role`` only when the update
+    touches ``role``. Reading body keys instead of a typed model keeps the
+    factory reusable across endpoints with different payload schemas.
+    Superadmins bypass every check via ``ensure_permission``.
+    """
+    field_map = conditional or {}
+
+    async def _require(
+        request: Request, admin: CurrentAdminUser, session: SessionDep
+    ) -> User:
+        await ensure_permission(session, admin, base)
+        if field_map:
+            present = await _request_body_fields(request)
+            for field, permission in field_map.items():
+                if field in present:
+                    await ensure_permission(session, admin, permission)
         return admin
 
     return _require

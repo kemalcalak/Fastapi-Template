@@ -16,6 +16,7 @@ from app.models.user import User
 from app.schemas.user import SystemRole
 from app.tests.admin.conftest import (
     get_user_id,
+    grant_all_permissions,
     login,
     promote_to_admin,
     register_and_verify,
@@ -134,6 +135,7 @@ async def test_regular_user_avatar_visible_to_admin(client: AsyncClient):
     # An admin then views the user list and detail.
     await register_and_verify(client, "admin@test.com")
     await promote_to_admin("admin@test.com")
+    await grant_all_permissions("admin@test.com")
     await login(client, "admin@test.com")
 
     listing = await client.get("/admin/users?search=member@test.com")

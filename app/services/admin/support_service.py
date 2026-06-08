@@ -270,7 +270,8 @@ async def update_ticket_admin_service(
 
     if payload.assigned_admin_id is not None:
         assignee = await get_user_by_id(session, payload.assigned_admin_id)
-        if assignee is None or assignee.role != SystemRole.ADMIN.value:
+        admin_roles = (SystemRole.ADMIN.value, SystemRole.SUPERADMIN.value)
+        if assignee is None or assignee.role not in admin_roles:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=ErrorMessages.INVALID_ASSIGNED_ADMIN,
