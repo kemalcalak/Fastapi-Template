@@ -65,6 +65,16 @@ async def list_users_admin(
     return users, total
 
 
+async def superadmin_exists(session: AsyncSession) -> bool:
+    """Return True if at least one superadmin account exists."""
+    stmt = (
+        select(func.count())
+        .select_from(User)
+        .where(User.role == SystemRole.SUPERADMIN.value)
+    )
+    return (await session.execute(stmt)).scalar_one() > 0
+
+
 async def is_last_active_admin(session: AsyncSession, user_id: uuid.UUID) -> bool:
     """Return True if ``user_id`` is the only remaining active admin."""
     stmt = (

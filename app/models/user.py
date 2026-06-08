@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
+    from app.models.admin_permission import AdminPermission
     from app.models.file import File
     from app.models.user_activity import UserActivity
 
@@ -89,6 +90,16 @@ class User(Base):
     # ON DELETE CASCADE — a single DELETE statement instead of one per row.
     activities: Mapped[list["UserActivity"]] = relationship(
         "UserActivity",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # RBAC permission grants. foreign_keys pins this to AdminPermission.user_id
+    # because that table also carries a granted_by FK back into user.
+    permissions: Mapped[list["AdminPermission"]] = relationship(
+        "AdminPermission",
+        foreign_keys="AdminPermission.user_id",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
