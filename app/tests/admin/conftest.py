@@ -5,9 +5,11 @@ admin-authenticated client and the seed helpers without re-importing them.
 """
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, update
 
+from app.core.config import settings
+from app.main import app
 from app.models.admin_permission import AdminPermission
 from app.models.user import User
 from app.schemas.admin_permission import Permission
@@ -47,13 +49,17 @@ async def promote_to_admin(email: str) -> None:
         await session.commit()
 
 
-async def promote_to_superadmin(email: str) -> None:
-    """Directly flip a user's role to superadmin in the DB."""
+async def promote_to_superadmin(email: str, *, root: bool = False) -> None:
+    """Directly flip a user's role to superadmin in the DB.
+
+    ``root=True`` also sets ``is_root_superadmin`` so the account can exercise
+    the root-only actions (promote/demote a superadmin, transfer root).
+    """
     async with TestingSessionLocal() as session:
         await session.execute(
             update(User)
             .where(User.email == email)
-            .values(role=SystemRole.SUPERADMIN.value)
+            .values(role=SystemRole.SUPERADMIN.value, is_root_superadmin=root)
         )
         await session.commit()
 
@@ -106,15 +112,34 @@ async def admin_client(client: AsyncClient) -> AsyncClient:
 
 @pytest.fixture
 async def superadmin_client(client: AsyncClient) -> AsyncClient:
-    """Return an authenticated superadmin client.
+    """Return an authenticated **root** superadmin client.
 
-    Superadmins bypass the per-permission gate and are the only role allowed to
-    change an admin's role, so role-management tests drive their actor here.
+    Superadmins bypass the per-permission gate; the root flag additionally
+    unlocks the superadmin-tier actions (promote/demote a superadmin, transfer
+    root), which is where most admin-management tests drive their actor.
     """
     await register_and_verify(client, "superadmin@test.com")
-    await promote_to_superadmin("superadmin@test.com")
+    await promote_to_superadmin("superadmin@test.com", root=True)
     await login(client, "superadmin@test.com")
     return client
+
+
+@pytest.fixture
+async def nonroot_superadmin_client() -> AsyncClient:
+    """A second superadmin that is NOT root, on an independent cookie jar.
+
+    Used to assert the root-only guard: a plain superadmin must be refused the
+    promote/demote/transfer-root actions. Built as its own client so it can
+    coexist with the root ``superadmin_client`` in a single test.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url=f"http://test{settings.API_V1_STR}"
+    ) as ac:
+        await register_and_verify(ac, "superadmin2@test.com")
+        await promote_to_superadmin("superadmin2@test.com", root=False)
+        await login(ac, "superadmin2@test.com")
+        yield ac
 
 
 @pytest.fixture

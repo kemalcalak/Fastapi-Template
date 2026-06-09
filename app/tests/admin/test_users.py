@@ -262,37 +262,16 @@ async def test_admin_cannot_change_user_email(admin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_admin_cannot_demote_self(admin_client: AsyncClient):
-    """An admin must not be able to change their own role."""
+async def test_admin_cannot_deactivate_self(admin_client: AsyncClient):
+    """An admin must not be able to deactivate their own account."""
     admin_id = await get_user_id("admin@test.com")
 
     response = await admin_client.patch(
         f"/admin/users/{admin_id}",
-        json={"role": SystemRole.USER.value},
+        json={"is_active": False},
     )
     assert response.status_code == 400
     assert response.json()["error"] == ErrorMessages.ADMIN_CANNOT_MODIFY_SELF
-
-
-@pytest.mark.asyncio
-async def test_demote_non_last_admin_succeeds(superadmin_client: AsyncClient):
-    """A superadmin can demote an admin while another active admin still remains.
-
-    Only superadmins may change an admin's role, so the actor is a superadmin;
-    two admins are seeded so the demoted one is not the last.
-    """
-    await register_and_verify(superadmin_client, "admin-a@test.com")
-    await promote_to_admin("admin-a@test.com")
-    await register_and_verify(superadmin_client, "admin-b@test.com")
-    await promote_to_admin("admin-b@test.com")
-    admin_b_id = await get_user_id("admin-b@test.com")
-
-    response = await superadmin_client.patch(
-        f"/admin/users/{admin_b_id}",
-        json={"role": SystemRole.USER.value},
-    )
-    assert response.status_code == 200
-    assert response.json()["user"]["role"] == SystemRole.USER.value
 
 
 @pytest.mark.asyncio

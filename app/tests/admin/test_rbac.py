@@ -1,8 +1,9 @@
-"""End-to-end RBAC rule coverage: permission gating, role rules, superadmin guards.
+"""End-to-end RBAC rule coverage: permission gating and superadmin guards.
 
-The conditional ``support:update`` permission rides the same
-``require_permissions`` factory as ``users:role`` (covered here), so the users
-domain exercises that mechanism without standing up a full ticket flow.
+Role transitions no longer happen on the users surface (admins are created and
+deleted as accounts; the superadmin tier is managed root-only on the admins
+surface), so this module focuses on per-permission gating and the protection
+rules that stop a plain admin from acting on a superadmin.
 """
 
 import pytest
@@ -70,84 +71,20 @@ async def test_users_read_does_not_imply_write(client: AsyncClient):
     assert response.json()["error"] == ErrorMessages.INSUFFICIENT_PERMISSIONS
 
 
-# --- Conditional permission: users:role ------------------------------------
+# --- Role field is rejected on the users surface ----------------------------
 
 
 @pytest.mark.asyncio
-async def test_users_write_without_role_cannot_change_role(client: AsyncClient):
-    """users:write alone cannot touch the role field — that needs users:role."""
+async def test_users_update_rejects_role_field(client: AsyncClient):
+    """The users update payload no longer accepts a role field (422)."""
     await _make_admin(client, "writer@test.com", [Permission.USERS_WRITE])
-    await register_and_verify(client, "promote-me@test.com")
-    target_id = await get_user_id("promote-me@test.com")
+    await register_and_verify(client, "rolesubject@test.com")
+    target_id = await get_user_id("rolesubject@test.com")
 
     response = await client.patch(
         f"/admin/users/{target_id}", json={"role": SystemRole.ADMIN.value}
     )
-    assert response.status_code == 403
-    assert response.json()["error"] == ErrorMessages.INSUFFICIENT_PERMISSIONS
-
-
-@pytest.mark.asyncio
-async def test_users_role_allows_promoting_a_user_to_admin(client: AsyncClient):
-    """users:write + users:role lets an admin promote a plain user to admin."""
-    await _make_admin(
-        client, "maker@test.com", [Permission.USERS_WRITE, Permission.USERS_ROLE]
-    )
-    await register_and_verify(client, "rookie@test.com")
-    target_id = await get_user_id("rookie@test.com")
-
-    response = await client.patch(
-        f"/admin/users/{target_id}", json={"role": SystemRole.ADMIN.value}
-    )
-    assert response.status_code == 200
-    assert response.json()["user"]["role"] == SystemRole.ADMIN.value
-
-
-@pytest.mark.asyncio
-async def test_admin_cannot_change_another_admins_role(client: AsyncClient):
-    """No admin may change another admin's role — only superadmins can."""
-    await _make_admin(
-        client, "boss@test.com", [Permission.USERS_WRITE, Permission.USERS_ROLE]
-    )
-    await register_and_verify(client, "peer-admin@test.com")
-    await promote_to_admin("peer-admin@test.com")
-    target_id = await get_user_id("peer-admin@test.com")
-
-    response = await client.patch(
-        f"/admin/users/{target_id}", json={"role": SystemRole.USER.value}
-    )
-    assert response.status_code == 403
-    assert response.json()["error"] == ErrorMessages.ADMIN_CANNOT_CHANGE_ADMIN_ROLE
-
-
-@pytest.mark.asyncio
-async def test_admin_cannot_grant_superadmin_role(client: AsyncClient):
-    """Granting the superadmin role is superadmin-only."""
-    await _make_admin(
-        client, "wannabe@test.com", [Permission.USERS_WRITE, Permission.USERS_ROLE]
-    )
-    await register_and_verify(client, "elevate@test.com")
-    target_id = await get_user_id("elevate@test.com")
-
-    response = await client.patch(
-        f"/admin/users/{target_id}", json={"role": SystemRole.SUPERADMIN.value}
-    )
-    assert response.status_code == 403
-    assert response.json()["error"] == ErrorMessages.ONLY_SUPERADMIN_ALLOWED
-
-
-@pytest.mark.asyncio
-async def test_superadmin_role_is_immutable(superadmin_client: AsyncClient):
-    """Not even a superadmin may change another superadmin's role."""
-    await register_and_verify(superadmin_client, "peer-super@test.com")
-    await promote_to_superadmin("peer-super@test.com")
-    target_id = await get_user_id("peer-super@test.com")
-
-    response = await superadmin_client.patch(
-        f"/admin/users/{target_id}", json={"role": SystemRole.USER.value}
-    )
-    assert response.status_code == 403
-    assert response.json()["error"] == ErrorMessages.SUPERADMIN_ROLE_IMMUTABLE
+    assert response.status_code == 422
 
 
 # --- Superadmin protection (plain admin acting on a superadmin) --------------
