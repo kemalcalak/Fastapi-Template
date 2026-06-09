@@ -5,19 +5,21 @@ from fastapi import APIRouter, Request, status
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentSuperAdmin, SessionDep
 from app.schemas.admin import (
+    AdminCreate,
     AdminListResponse,
     AdminMutationResponse,
     AdminPermissionsUpdate,
-    AdminPromote,
     PermissionCatalogResponse,
 )
 from app.schemas.msg import Message
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.admin_service import (
-    demote_admin_service,
+    create_admin_service,
+    delete_admin_service,
+    demote_superadmin_service,
     get_permission_catalog_service,
     list_admins_service,
-    promote_to_admin_service,
+    promote_admin_to_superadmin_service,
     update_admin_permissions_service,
 )
 
@@ -53,18 +55,18 @@ async def list_permission_catalog(
     status_code=status.HTTP_201_CREATED,
 )
 @audit_unexpected_failure(
-    activity_type=ActivityType.UPDATE,
+    activity_type=ActivityType.CREATE,
     resource_type=ResourceType.USER,
     endpoint="/admin/admins",
 )
-async def promote_admin(
+async def create_admin(
     request: Request,
     current_user: CurrentSuperAdmin,
     session: SessionDep,
-    payload: AdminPromote,
+    payload: AdminCreate,
 ) -> AdminMutationResponse:
-    """Promote a user to admin with an initial permission set (superadmin only)."""
-    return await promote_to_admin_service(
+    """Create a new admin account with an initial permission set (superadmin only)."""
+    return await create_admin_service(
         request=request,
         session=session,
         current_user=current_user,
@@ -95,20 +97,62 @@ async def set_admin_permissions(
     )
 
 
-@router.delete("/{user_id}", response_model=Message)
+@router.post("/{user_id}/promote", response_model=AdminMutationResponse)
 @audit_unexpected_failure(
     activity_type=ActivityType.UPDATE,
     resource_type=ResourceType.USER,
+    endpoint="/admin/admins/{user_id}/promote",
+)
+async def promote_admin(
+    request: Request,
+    current_user: CurrentSuperAdmin,
+    session: SessionDep,
+    user_id: uuid.UUID,
+) -> AdminMutationResponse:
+    """Promote an admin to superadmin (root superadmin only)."""
+    return await promote_admin_to_superadmin_service(
+        request=request,
+        session=session,
+        current_user=current_user,
+        user_id=user_id,
+    )
+
+
+@router.post("/{user_id}/demote", response_model=AdminMutationResponse)
+@audit_unexpected_failure(
+    activity_type=ActivityType.UPDATE,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/admins/{user_id}/demote",
+)
+async def demote_superadmin(
+    request: Request,
+    current_user: CurrentSuperAdmin,
+    session: SessionDep,
+    user_id: uuid.UUID,
+) -> AdminMutationResponse:
+    """Demote a superadmin back to admin (root superadmin only)."""
+    return await demote_superadmin_service(
+        request=request,
+        session=session,
+        current_user=current_user,
+        user_id=user_id,
+    )
+
+
+@router.delete("/{user_id}", response_model=Message)
+@audit_unexpected_failure(
+    activity_type=ActivityType.DELETE,
+    resource_type=ResourceType.USER,
     endpoint="/admin/admins/{user_id}",
 )
-async def demote_admin(
+async def delete_admin(
     request: Request,
     current_user: CurrentSuperAdmin,
     session: SessionDep,
     user_id: uuid.UUID,
 ) -> Message:
-    """Demote an admin back to a regular user, revoking every grant (superadmin only)."""
-    return await demote_admin_service(
+    """Hard-delete an admin account (superadmin only)."""
+    return await delete_admin_service(
         request=request,
         session=session,
         current_user=current_user,

@@ -159,43 +159,11 @@ async def update_user_admin_service(
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    new_role = update_data.get("role")
-    if new_role is not None and new_role != target.role:
-        _guard_not_self(
-            current_user.id, target.id, ErrorMessages.ADMIN_CANNOT_MODIFY_SELF
-        )
-        actor_is_superadmin = current_user.role == SystemRole.SUPERADMIN.value
-
-        # A superadmin's role is immutable: nobody — not even another superadmin
-        # — may change it. This permanently locks the seeded root superadmin.
-        if target.role == SystemRole.SUPERADMIN.value:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ErrorMessages.SUPERADMIN_ROLE_IMMUTABLE,
-            )
-        # Only a superadmin may change an existing admin's role — no admin can
-        # change another admin's role.
-        if target.role == SystemRole.ADMIN.value and not actor_is_superadmin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ErrorMessages.ADMIN_CANNOT_CHANGE_ADMIN_ROLE,
-            )
-        # Granting the superadmin role is superadmin-only.
-        if new_role == SystemRole.SUPERADMIN and not actor_is_superadmin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ErrorMessages.ONLY_SUPERADMIN_ALLOWED,
-            )
-        # A superadmin demoting the last remaining admin would leave none.
-        demoting_admin = (
-            target.role == SystemRole.ADMIN.value and new_role != SystemRole.ADMIN
-        )
-        if demoting_admin and await is_last_active_admin(session, target.id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ErrorMessages.ADMIN_CANNOT_DEMOTE_LAST_ADMIN,
-            )
-        update_data["role"] = new_role.value
+    # Role is intentionally not editable here: there is no user→admin or
+    # admin→user transition any more. Admins are provisioned as accounts and
+    # removed by deletion; the superadmin tier is managed only on the admins
+    # surface (root-only promote/demote). ``AdminUserUpdate`` carries no role
+    # field, so nothing to handle.
 
     if "is_active" in update_data and update_data["is_active"] != target.is_active:
         _guard_not_self(

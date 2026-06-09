@@ -42,11 +42,12 @@ class ErrorMessages:
     ADMIN_CANNOT_MODIFY_SUPERADMIN = "error.admin.cannot_modify_superadmin"
     ADMIN_CANNOT_DELETE_LAST_SUPERADMIN = "error.admin.cannot_delete_last_superadmin"
     ONLY_SUPERADMIN_ALLOWED = "error.admin.only_superadmin"
+    ONLY_ROOT_SUPERADMIN = "error.admin.only_root_superadmin"
     NOT_AN_ADMIN = "error.admin.not_an_admin"
-    ALREADY_AN_ADMIN = "error.admin.already_an_admin"
+    NOT_A_SUPERADMIN = "error.admin.not_a_superadmin"
+    CANNOT_TRANSFER_TO_SELF = "error.admin.cannot_transfer_to_self"
     # Role-change immutability rules
     SUPERADMIN_ROLE_IMMUTABLE = "error.admin.superadmin_role_immutable"
-    ADMIN_CANNOT_CHANGE_ADMIN_ROLE = "error.admin.cannot_change_admin_role"
 
     # File / upload
     FILE_NOT_FOUND = "error.file.not_found"
