@@ -24,7 +24,6 @@ class AdminUserUpdate(BaseModel):
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=100)
-    role: SystemRole | None = None
     is_active: bool | None = None
     is_verified: bool | None = None
     avatar_file_id: uuid.UUID | None = Field(default=None)

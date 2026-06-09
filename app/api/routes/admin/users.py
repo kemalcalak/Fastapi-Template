@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import SessionDep, require_permission, require_permissions
+from app.api.deps import SessionDep, require_permission
 from app.core.messages.success_message import SuccessMessages
 from app.core.rate_limit import rate_limit_strict
 from app.models.user import User
@@ -42,12 +42,7 @@ AdminUsersPasswordReset = Annotated[
 
 AdminUserUpdateAuth = Annotated[
     User,
-    Depends(
-        require_permissions(
-            Permission.USERS_WRITE,
-            conditional={"role": Permission.USERS_ROLE},
-        )
-    ),
+    Depends(require_permission(Permission.USERS_WRITE)),
 ]
 
 
@@ -109,7 +104,7 @@ async def update_user(
     user_id: uuid.UUID,
     payload: AdminUserUpdate,
 ) -> AdminUserUpdateResponse:
-    """Admin-authored update of a user's profile, role, or status."""
+    """Admin-authored update of a user's profile or status."""
     user = await update_user_admin_service(
         request=request,
         session=session,
