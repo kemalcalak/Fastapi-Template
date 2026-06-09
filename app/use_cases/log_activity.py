@@ -4,7 +4,11 @@ from fastapi import Request
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user_activity import UserActivity
+from app.models.user_activity import (
+    IP_ADDRESS_MAX_LENGTH,
+    USER_AGENT_MAX_LENGTH,
+    UserActivity,
+)
 from app.repositories.user_activity import create_user_activity
 from app.schemas.common import ActivityDetails
 from app.schemas.user_activity import (
@@ -36,7 +40,14 @@ async def log_activity(
         status_code = http_status.HTTP_200_OK
 
     ip_address = request.client.host if request and request.client else None
+    if ip_address is not None:
+        ip_address = ip_address[:IP_ADDRESS_MAX_LENGTH]
+
     user_agent = request.headers.get("user-agent") if request else None
+    # Truncate the client-supplied user-agent so an oversized header can never
+    # exceed the column length (which would raise on insert) or bloat the log.
+    if user_agent is not None:
+        user_agent = user_agent[:USER_AGENT_MAX_LENGTH]
 
     activity_data = UserActivityCreate(
         user_id=user_id,

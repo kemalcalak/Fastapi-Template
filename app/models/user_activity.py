@@ -15,6 +15,14 @@ from app.schemas.common import ActivityDetails
 from app.schemas.user_activity import ActivityStatus
 from app.utils import utc_now
 
+# Length caps for client-supplied audit fields, enforced at write time by the
+# logger (see ``app/use_cases/log_activity.py``). ``ip_address`` fits the
+# longest IPv6 textual form; ``user_agent`` is attacker-controlled so it is
+# bounded to stop oversized headers from bloating the audit log. Kept as a
+# write-time cap rather than a DB constraint to avoid a heavy column rewrite.
+IP_ADDRESS_MAX_LENGTH = 45
+USER_AGENT_MAX_LENGTH = 500
+
 
 class UserActivity(Base):
     """
