@@ -32,6 +32,9 @@ class ErrorMessages:
     ACCOUNT_ALREADY_SUSPENDED = "error.account.already_suspended"
     ACCOUNT_NOT_SUSPENDED = "error.account.not_suspended"
 
+    # Account lockout (automatic, temporary — too many failed logins)
+    ACCOUNT_LOCKED = "error.account.locked"
+
     # Admin
     ADMIN_CANNOT_MODIFY_SELF = "error.admin.cannot_modify_self"
     ADMIN_CANNOT_DELETE_SELF = "error.admin.cannot_delete_self"

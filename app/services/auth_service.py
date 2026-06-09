@@ -20,6 +20,11 @@ from app.core.security import (
     verify_refresh_token,
 )
 from app.models.user import User
+from app.repositories.login_attempts import (
+    clear_login_attempts,
+    is_login_locked,
+    register_failed_login,
+)
 from app.repositories.token_blacklist import (
     add_token_to_blacklist,
     is_token_blacklisted,
@@ -39,6 +44,7 @@ from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_service import create_user_service
 from app.use_cases.log_activity import log_activity
 from app.utils.email_templates import (
+    generate_account_locked_email,
     generate_email_verification_email,
     generate_password_reset_email,
 )
@@ -107,6 +113,24 @@ async def register_service(
 _DUMMY_PASSWORD_HASH = get_password_hash("unused-timing-safe-placeholder")
 
 
+async def _notify_account_locked(user: User) -> None:
+    """Email the user that their account was just locked (best-effort)."""
+    lock_minutes = max(1, settings.LOGIN_LOCKOUT_SECONDS // 60)
+    email_data = generate_account_locked_email(
+        project_name=settings.PROJECT_NAME,
+        lock_minutes=lock_minutes,
+        lang=settings.DEFAULT_LANGUAGE,
+    )
+    await send_email(
+        to=user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(user.id),
+        is_html=True,
+    )
+
+
 async def authenticate(
     request: Request | None, session: AsyncSession, email: str, password: str
 ) -> User:
@@ -115,6 +139,16 @@ async def authenticate(
     Returns the user object if successful, raises 401 otherwise.
     Combined check for security (timing attacks).
     """
+    # Account lockout guard: reject early (423) while a temporary lock is active
+    # so even a correct password cannot be used during the cooldown.
+    lock_ttl = await is_login_locked(email)
+    if lock_ttl > 0:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=ErrorMessages.ACCOUNT_LOCKED,
+            headers={"Retry-After": str(lock_ttl)},
+        )
+
     user = await get_user_by_email(session, email=email)
 
     # Always run verify_password so the response time does not leak whether
@@ -134,10 +168,37 @@ async def authenticate(
                 details={"reason": "invalid_password", "email": email},
                 request=request,
             )
+
+        # Count the failure; the threshold-crossing attempt locks the account.
+        locked_now = await register_failed_login(email)
+        if locked_now:
+            if user:
+                await _notify_account_locked(user)
+                if request:
+                    await log_activity(
+                        session=session,
+                        user_id=user.id,
+                        activity_type=ActivityType.LOGIN,
+                        resource_type=ResourceType.AUTH,
+                        status=ActivityStatus.FAILURE,
+                        status_code=status.HTTP_423_LOCKED,
+                        details={"reason": "account_locked", "email": email},
+                        request=request,
+                    )
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=ErrorMessages.ACCOUNT_LOCKED,
+                headers={"Retry-After": str(settings.LOGIN_LOCKOUT_SECONDS)},
+            )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ErrorMessages.INVALID_CREDENTIALS,
         )
+
+    # Correct password: reset the failed-attempt counter so a legitimate login
+    # never accumulates toward a lockout.
+    await clear_login_attempts(email)
 
     # Admin-suspended accounts are permanently locked out. This guard must run
     # before the grace-window fall-through below, otherwise a suspended user

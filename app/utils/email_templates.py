@@ -550,3 +550,107 @@ def generate_root_transfer_otp_email(
 </html>"""
 
     return {"subject": subject, "html": html, "plain_text": plain_text}
+
+
+def generate_account_locked_email(
+    project_name: str, lock_minutes: int, lang: str = Language.EN
+) -> dict[str, str]:
+    """Generate subject, HTML, and plain text for an account-lockout alert.
+
+    Sent when an account is temporarily locked after too many failed logins.
+    Deliberately link-free: it only informs the user the lock is automatic and
+    time-limited, and prompts a password reset if the attempts were not theirs.
+    """
+    if lang == Language.TR:
+        subject = "Hesabınız geçici olarak kilitlendi"
+        greeting = "Merhaba,"
+        message = (
+            "Çok sayıda başarısız giriş denemesi nedeniyle hesabınız güvenlik "
+            f"amacıyla {lock_minutes} dakika boyunca geçici olarak kilitlendi. "
+            "Bu süre sonunda otomatik olarak tekrar giriş yapabilirsiniz."
+        )
+        disclaimer = (
+            "Bu denemeler size ait değilse, giriş sayfasındaki 'Şifremi Unuttum' "
+            "bağlantısı ile şifrenizi sıfırlamanızı öneririz."
+        )
+        footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
+        plain_text = (
+            "Çok sayıda başarısız giriş denemesi nedeniyle hesabınız "
+            f"{lock_minutes} dakika boyunca geçici olarak kilitlendi. Bu denemeler "
+            "size ait değilse, giriş sayfasındaki 'Şifremi Unuttum' bağlantısı ile "
+            "şifrenizi sıfırlayın."
+        )
+    else:
+        subject = "Your account has been temporarily locked"
+        greeting = "Hi there,"
+        message = (
+            "For your security, your account has been temporarily locked for "
+            f"{lock_minutes} minutes after too many failed login attempts. You "
+            "will be able to sign in again automatically once this period ends."
+        )
+        disclaimer = (
+            "If these attempts weren't you, we recommend resetting your password "
+            "using the 'Forgot Password' link on the login page."
+        )
+        footer_text = f"&copy; {project_name}. All rights reserved."
+        plain_text = (
+            "For your security, your account has been temporarily locked for "
+            f"{lock_minutes} minutes after too many failed login attempts. If these "
+            "attempts weren't you, reset your password using the 'Forgot Password' "
+            "link on the login page."
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{subject}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+        @media only screen and (max-width: 620px) {{
+            .wrapper {{ padding: 20px !important; }}
+            .container {{ width: 100% !important; border-radius: 12px !important; overflow: hidden; }}
+            .content {{ padding: 32px 24px !important; }}
+            .header {{ padding: 32px 24px !important; }}
+        }}
+    </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f8fafc;-webkit-font-smoothing:antialiased;">
+    <table class="wrapper" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;padding:48px 0;">
+        <tr>
+            <td align="center">
+                <table class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td class="header" style="background-color:#ffffff;padding:40px 48px;border-bottom:1px solid #f1f5f9;text-align:center;">
+                            <div style="display:inline-block;padding:12px;background-color:#fef2f2;border-radius:12px;margin-bottom:16px;">
+                                <span style="font-size:32px;">🔒</span>
+                            </div>
+                            <h1 style="margin:0;font-size:24px;font-weight:700;color:#1e293b;letter-spacing:-0.5px;">{project_name}</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="content" style="padding:40px 48px;">
+                            <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#0f172a;">{greeting}</p>
+                            <p style="margin:0 0 32px;font-size:16px;line-height:1.6;color:#475569;">{message}</p>
+                            <div style="padding:20px;background-color:#fef2f2;border-radius:12px;border-left:4px solid #ef4444;">
+                                <p style="margin:0;font-size:13px;line-height:1.6;color:#b91c1c;font-style:italic;">{disclaimer}</p>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:32px 48px;background-color:#f8fafc;text-align:center;border-top:1px solid #e2e8f0;">
+                            <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">{project_name}</p>
+                            <p style="margin:0;font-size:12px;color:#94a3b8;">{footer_text}</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
+
+    return {"subject": subject, "html": html, "plain_text": plain_text}

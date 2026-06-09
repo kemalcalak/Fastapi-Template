@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     EMAIL_RESET_TOKEN_EXPIRE_HOURS: int = 48
+
+    # Account lockout: after MAX failed logins within the WINDOW, the account is
+    # locked for LOCKOUT seconds. Closes distributed brute-force that the
+    # per-IP rate limit cannot (attempts keyed by email, not source IP).
+    LOGIN_MAX_FAILED_ATTEMPTS: int = 5
+    LOGIN_FAILED_ATTEMPT_WINDOW_SECONDS: int = 15 * 60
+    LOGIN_LOCKOUT_SECONDS: int = 15 * 60
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
     DEFAULT_LANGUAGE: Literal["en", "tr"] = "en"
