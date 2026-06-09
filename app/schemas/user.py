@@ -61,6 +61,7 @@ class UserRegister(BaseModel):
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=100)
+    lang: Language = Language.EN
 
 
 # Properties to receive via API on update, all are optional

@@ -27,7 +27,14 @@ from app.repositories.token_blacklist import (
 from app.repositories.user import get_user_by_email, get_user_by_id, update_user
 from app.schemas.msg import Message
 from app.schemas.token import AuthTokens, Token
-from app.schemas.user import Language, UpdatePassword, UserCreate, UserPublic
+from app.schemas.user import (
+    Language,
+    SystemRole,
+    UpdatePassword,
+    UserCreate,
+    UserPublic,
+    UserRegister,
+)
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_service import create_user_service
 from app.use_cases.log_activity import log_activity
@@ -38,11 +45,28 @@ from app.utils.email_templates import (
 
 
 async def register_service(
-    request: Request, session: AsyncSession, user_create: UserCreate
+    request: Request, session: AsyncSession, user_register: UserRegister
 ) -> UserPublic:
-    """Register a user, audit the event, and send the verification email."""
+    """Register a user, audit the event, and send the verification email.
+
+    Builds the user from a restricted ``UserRegister`` payload and forces the
+    privileged fields (``role``, ``is_active``, ``is_verified``) to safe values
+    so a self-service registrant can never escalate to admin/superadmin or
+    self-verify. Privileged user creation goes through the admin flow instead.
+    """
+    safe_user = UserCreate(
+        email=user_register.email,
+        password=user_register.password,
+        first_name=user_register.first_name,
+        last_name=user_register.last_name,
+        title=user_register.title,
+        lang=user_register.lang,
+        role=SystemRole.USER,
+        is_active=True,
+        is_verified=False,
+    )
     user = await create_user_service(
-        request=request, session=session, user_create=user_create, current_user=None
+        request=request, session=session, user_create=safe_user, current_user=None
     )
     await log_activity(
         session=session,
@@ -62,7 +86,7 @@ async def register_service(
     email_data = generate_email_verification_email(
         verify_link=verify_url,
         project_name=settings.PROJECT_NAME,
-        lang=user_create.lang,
+        lang=user_register.lang,
     )
 
     await send_email(
