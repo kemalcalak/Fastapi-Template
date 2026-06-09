@@ -11,7 +11,7 @@ dependencies = [
     "bcrypt>=5.0.0",
     "cloudinary>=1.44.2",
     "dnspython>=2.8.0",
-    "fastapi[standard]>=0.129.2",
+    "fastapi[standard]>=0.130.0",
     "httpx>=0.28.1",
     "opentelemetry-api>=1.41.1",
     "opentelemetry-exporter-otlp-proto-http>=1.41.1",
@@ -23,12 +23,13 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.1.0",
     "pydantic-settings>=2.13.1",
     "pydantic[email]>=2.12.5",
-    "pyjwt>=2.11.0",
-    "python-multipart>=0.0.22",
+    "pyjwt>=2.12.0",
+    "python-multipart>=0.0.26",
     "redis>=7.2.1",
     "sentry-sdk>=2.53.0",
     "slowapi>=0.1.9",
     "sqlalchemy>=2.0.0",
+    "starlette>=1.0.1",
 ]
 
 [dependency-groups]
