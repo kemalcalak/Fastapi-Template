@@ -6,6 +6,7 @@ so an unconfirmed transfer simply lapses.
 """
 
 import hashlib
+import hmac
 import json
 import uuid
 
@@ -54,7 +55,9 @@ async def verify_root_transfer_otp(root_id: uuid.UUID, code: str) -> uuid.UUID |
     if not raw:
         return None
     data = json.loads(raw)
-    if data.get("code_hash") == _hash_code(code):
+    # Constant-time compare: both sides are SHA-256 hex digests, so the timing
+    # risk is already minimal, but ``compare_digest`` removes it entirely.
+    if hmac.compare_digest(str(data.get("code_hash", "")), _hash_code(code)):
         return uuid.UUID(data["target_id"])
 
     attempts = int(data.get("attempts", 0)) + 1
