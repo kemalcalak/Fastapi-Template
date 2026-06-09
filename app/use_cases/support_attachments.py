@@ -39,7 +39,7 @@ async def resolve_attachment_files(
             )
         if expected_category is not None and file.category != expected_category.value:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=ErrorMessages.ATTACHMENT_WRONG_CATEGORY,
             )
         resolved.append(file)
