@@ -402,6 +402,23 @@ A complete support desk built on a generic realtime bus that any feature can reu
 
 ---
 
+## 🚀 Getting Started Checklist
+
+- [ ] Clone the repository and `cd fastapi-template`
+- [ ] Copy `.env.example` → `.env` and set `SECRET_KEY`, `FIRST_SUPERUSER`, and `FIRST_SUPERUSER_PASSWORD`
+- [ ] Start the stack with `docker-compose up -d --build` (backend + worker + PostgreSQL + Redis)
+- [ ] Apply migrations: `docker-compose exec backend uv run alembic upgrade head`
+- [ ] Open the Swagger UI at `http://localhost:8000/docs`
+- [ ] Confirm the **first superadmin** was seeded from `FIRST_SUPERUSER` on startup, then log in with it
+- [ ] Create an admin account and assign `resource:action` permissions from the admin endpoints (superadmin-only)
+- [ ] Log in as that permission-limited admin and verify each route is gated by `require_permission(...)`
+- [ ] Try the support flow: open a ticket, then reply/assign it as an admin and watch the WebSocket bus push updates live
+- [ ] Set Cloudinary keys (`CLOUDINARY_*`) if you need `POST /upload` for files/avatars
+- [ ] Run the test suite with `uv run pytest` to confirm everything is green
+- [ ] Add a new message constant to `app/core/messages/` before introducing any user-facing string
+
+---
+
 ## 🤝 Contributing
 
 Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
