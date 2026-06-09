@@ -35,11 +35,11 @@ Kanıt: [pyproject.toml](pyproject.toml), [.pre-commit-config.yaml](.pre-commit-
 app/
 ├── main.py                  # 37 satır — sadece composition (init_sentry, register_*, init_*)
 ├── api/
-│   ├── deps.py              # SessionDep, CurrentUser, CurrentActiveUser, CurrentSuperUser
+│   ├── deps.py              # SessionDep, CurrentUser/ActiveUser/AdminUser/SuperAdmin, require_permission(s), ensure_permission, user_has_permission
 │   ├── decorators.py        # audit_unexpected_failure
 │   ├── exception_handlers.py# register_exception_handlers + slowapi limiter wiring
-│   ├── main.py              # api_router (health, auth, users, admin)
-│   └── routes/{auth,users,health}.py + admin/
+│   ├── main.py              # api_router (health, auth, users, support, admin)
+│   └── routes/{auth,users,support,health}.py + admin/{users,admins,files,support,activities,stats}
 ├── services/                # async fonksiyonlar — class YASAK
 │   ├── auth_service.py
 │   ├── user_service.py
@@ -57,7 +57,9 @@ app/
 │   ├── db.py                # async engine + AsyncSessionLocal
 │   ├── security.py          # JWT + bcrypt
 │   ├── messages/{error,success}_message.py  # ⚠️ Tüm hata/başarı string'leri
-│   ├── lifespan.py          # init/close redis
+│   ├── lifespan.py          # init/close redis + ensure_first_superadmin
+│   ├── realtime.py          # generic Redis pub/sub ↔ WebSocket bus (support + account topics)
+│   ├── bootstrap.py         # ensure_first_superadmin (startup superadmin seed)
 │   ├── middleware.py        # origin_check + CORS
 │   ├── exception_handlers içinde (api/) ama register middleware/metrics/telemetry/sentry/openapi
 │   ├── rate_limit.py        # slowapi limiter + decorator factory'ler
@@ -113,7 +115,7 @@ Yeni domain: model → schema → repository → service → route (her katman s
 - Password hashing **bcrypt** ([security.py:107-140](app/core/security.py)) — plain-text password log/return yasak.
 - Auth flow: cookie `access_token` (HttpOnly) öncelikli, fallback `Authorization: Bearer` ([deps.py:42](app/api/deps.py)).
 - `is_token_blacklisted` Redis kontrolü her `get_current_user` çağrısında ([deps.py:51-56](app/api/deps.py)).
-- `CurrentUser` deletion grace window'undakileri kabul eder; `CurrentActiveUser` red eder ([deps.py:31-91](app/api/deps.py)). Süpper-admin için `CurrentSuperUser` ([deps.py:94-103](app/api/deps.py)).
+- `CurrentUser` deletion grace window'undakileri kabul eder; `CurrentActiveUser` red eder ([deps.py](app/api/deps.py)). Admin paneli için `CurrentAdminUser` (admin **veya** superadmin), superadmin-özel uçlar için `CurrentSuperAdmin`; ince taneli yetki için **`require_permission(Permission.X)`** tek `Depends` — bkz. [3.18 RBAC](#318-rbac-roller--izinler).
 - Logout/deactivate token blacklist'e eklenir ([user_service.py:74-80](app/services/user_service.py)).
 - Cookie path: `access_token` "/", `refresh_token` `f"{API_V1_STR}/auth/refresh"` ([users.py:82-85](app/api/routes/users.py)).
 
@@ -185,6 +187,16 @@ Yeni global concern → kendi modülüne `register_X(app)` / `init_X(app)` ile e
 - Pre-commit: ruff check (--fix) + ruff format. Pre-push: `uv run pytest` ([.pre-commit-config.yaml:22-31](.pre-commit-config.yaml)).
 - `uv.lock` dependency değişikliği ile birlikte commit edilir ([CLAUDE.md:109](CLAUDE.md)). `pip install` yasak.
 
+### 3.18 RBAC (roller + izinler)
+
+- Üç rol: `user` / `admin` / `superadmin` ([schemas/user.py](app/schemas/user.py) `SystemRole`). Superadmin tüm izin kontrolünü bypass eder ve admin'leri yöneten tek roldür.
+- İzinler `resource:action` key'leri ([schemas/admin_permission.py](app/schemas/admin_permission.py) `Permission` enum). Plain admin'in grant'ları `admin_permission` tablosunda ([models/admin_permission.py](app/models/admin_permission.py)); superadmin hepsine implicit sahip.
+- **Her admin endpoint tek `Depends(require_permission(Permission.X))` ile korunur** ([deps.py](app/api/deps.py)). `require_permission`/`require_permissions` → `ensure_permission` zincirine iner (auth → active → admin rolü → grant; superadmin short-circuit). **Payload-koşullu** izinler `require_permissions(base, conditional={...})` ile raw body alanına göre ek izin ister (rol değişimi → `users:role`, ticket atama → `support:update`).
+- Admin-yönetim uçları ([routes/admin/admins.py](app/api/routes/admin/admins.py)) **`CurrentSuperAdmin`** ile korunur (list / promote / demote / izin-set / katalog).
+- **Rol değişmezlik invariant'ları serviste** ([services/admin/user_service.py](app/services/admin/user_service.py)): superadmin rolü değiştirilemez (`SUPERADMIN_ROLE_IMMUTABLE`); admin rolünü yalnızca superadmin değiştirir (`ADMIN_CANNOT_CHANGE_ADMIN_ROLE`); plain admin superadmin hedefe dokunamaz (`_guard_superadmin_target`); son superadmin korunur (`is_last_active_superadmin`).
+- `/users/me` admin'e `permissions` döndürür (superadmin/user'a alanı hiç göndermez) — FE gating birebir bunu yansıtır.
+- İzin değişince hedef admin'e `permissions_updated` realtime event'i basılır ([core/realtime.py](app/core/realtime.py) `account:{id}` topic) — FE re-fetch eder.
+
 ---
 
 ## 4. Anti-Pattern'ler (kaçınılır)
@@ -243,6 +255,11 @@ Yeni global concern → kendi modülüne `register_X(app)` / `init_X(app)` ile e
 - HttpOnly/SameSite/Secure flag'larını kaldırma.
 - **`@router.delete("/users/me")` veya silme/şifre değişimi gibi endpoint'lerde rate limit decorator yok**.
 - `verify_token` `expected_type` parametresini değiştirme/kaldırma — yanlış tip token kabul edilebilir.
+- **Admin endpoint'i `require_permission(...)` / `CurrentAdminUser` olmadan** açık — RBAC yetki kapısı yok.
+- **Admin-yönetim ucu (`/admin/admins/*`) `CurrentSuperAdmin` olmadan** — superadmin-özel kapı atlanmış.
+- **Koşullu izinleri (rol değişimi → `users:role`, ticket atama → `support:update`) enforce etmeyen** mutation — raw payload izni atlanırsa yanlış işlem 403 yerine geçer.
+- **Superadmin koruma invariant'larını gevşetme** (`_guard_superadmin_target`, `is_last_active_superadmin`, `SUPERADMIN_ROLE_IMMUTABLE`, `ADMIN_CANNOT_CHANGE_ADMIN_ROLE`).
+- **`/users/me` payload'ına superadmin/user için `permissions` ekleme** (yalnızca plain admin'e dönmeli).
 
 ### 5.5 Pydantic / Schemas
 - **ORM modeli response'ta** — `response_model` Pydantic schema olmalı.
@@ -330,4 +347,4 @@ Bu maddeleri **flag etme**:
 
 ---
 
-Son güncelleme: 2026-05-06.
+Son güncelleme: 2026-06-09.
