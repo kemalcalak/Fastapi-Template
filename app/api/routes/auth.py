@@ -159,7 +159,7 @@ async def register_user(
     request: Request, session: SessionDep, user_in: UserRegister
 ) -> Message:
     """Register a new user."""
-    await register_service(request=request, session=session, user_create=user_in)
+    await register_service(request=request, session=session, user_register=user_in)
     return Message(success=True, message=SuccessMessages.REGISTER_SUCCESS)
 
 
