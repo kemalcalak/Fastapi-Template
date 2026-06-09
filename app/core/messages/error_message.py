@@ -38,6 +38,17 @@ class ErrorMessages:
     ADMIN_CANNOT_DEMOTE_LAST_ADMIN = "error.admin.cannot_demote_last_admin"
     ADMIN_CANNOT_DELETE_LAST_ADMIN = "error.admin.cannot_delete_last_admin"
 
+    # RBAC / superadmin
+    ADMIN_CANNOT_MODIFY_SUPERADMIN = "error.admin.cannot_modify_superadmin"
+    ADMIN_CANNOT_DELETE_LAST_SUPERADMIN = "error.admin.cannot_delete_last_superadmin"
+    ONLY_SUPERADMIN_ALLOWED = "error.admin.only_superadmin"
+    ONLY_ROOT_SUPERADMIN = "error.admin.only_root_superadmin"
+    NOT_AN_ADMIN = "error.admin.not_an_admin"
+    NOT_A_SUPERADMIN = "error.admin.not_a_superadmin"
+    CANNOT_TRANSFER_TO_SELF = "error.admin.cannot_transfer_to_self"
+    # Role-change immutability rules
+    SUPERADMIN_ROLE_IMMUTABLE = "error.admin.superadmin_role_immutable"
+
     # File / upload
     FILE_NOT_FOUND = "error.file.not_found"
     FILE_TOO_LARGE = "error.file.too_large"

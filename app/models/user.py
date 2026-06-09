@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
+    from app.models.admin_permission import AdminPermission
     from app.models.file import File
     from app.models.user_activity import UserActivity
 
@@ -54,6 +55,9 @@ class User(Base):
     last_name: Mapped[str | None] = mapped_column(String(100), default=None)
     title: Mapped[str | None] = mapped_column(String(100), default=None)
     role: Mapped[str] = mapped_column(String(20), default="user")
+    # Marks the single root superadmin (the first one seeded). Only the root may
+    # promote admins to superadmin or demote other superadmins back to admin.
+    is_root_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
     hashed_password: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now
@@ -89,6 +93,16 @@ class User(Base):
     # ON DELETE CASCADE — a single DELETE statement instead of one per row.
     activities: Mapped[list["UserActivity"]] = relationship(
         "UserActivity",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # RBAC permission grants. foreign_keys pins this to AdminPermission.user_id
+    # because that table also carries a granted_by FK back into user.
+    permissions: Mapped[list["AdminPermission"]] = relationship(
+        "AdminPermission",
+        foreign_keys="AdminPermission.user_id",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

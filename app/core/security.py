@@ -181,6 +181,16 @@ def generate_secure_random_password(length: int = 32) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def generate_otp_code(length: int = 6) -> str:
+    """Generate a cryptographically-secure numeric one-time passcode.
+
+    Used for email-verified sensitive actions (e.g. root-superadmin transfer).
+    Returns a zero-padded string of ``length`` digits so leading zeros are kept.
+    """
+    upper_bound = 10**length
+    return f"{secrets.randbelow(upper_bound):0{length}d}"
+
+
 # ---------------------------------------------------------------------------
 # Email verification tokens  (password-reset & new-account)
 # ---------------------------------------------------------------------------

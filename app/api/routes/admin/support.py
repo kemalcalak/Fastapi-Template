@@ -1,12 +1,20 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request, WebSocket, status
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, status
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentSuperUser, SessionDep, get_ws_user
+from app.api.deps import (
+    SessionDep,
+    get_ws_user,
+    require_permission,
+    require_permissions,
+    user_has_permission,
+)
 from app.core.rate_limit import rate_limit_authenticated
 from app.core.realtime import ADMIN_TOPIC, serve_multiplex
+from app.models.user import User
+from app.schemas.admin_permission import Permission
 from app.schemas.support import (
     AdminTicketDetail,
     AdminTicketListResponse,
@@ -17,7 +25,6 @@ from app.schemas.support import (
     TicketPriority,
     TicketStatus,
 )
-from app.schemas.user import SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.support_service import (
     get_ticket_admin_service,
@@ -28,6 +35,22 @@ from app.services.admin.support_service import (
 )
 
 router = APIRouter()
+
+AdminSupportRead = Annotated[User, Depends(require_permission(Permission.SUPPORT_READ))]
+AdminSupportWrite = Annotated[
+    User, Depends(require_permission(Permission.SUPPORT_WRITE))
+]
+
+
+AdminTicketUpdateAuth = Annotated[
+    User,
+    Depends(
+        require_permissions(
+            Permission.SUPPORT_WRITE,
+            conditional={"assigned_admin_id": Permission.SUPPORT_UPDATE},
+        )
+    ),
+]
 
 # Admin WS gates run before the handshake completes, so we close without
 # accepting and the browser sees a generic HTTP 403 on the upgrade request. The
@@ -45,7 +68,7 @@ _WS_POLICY_VIOLATION = 1008
 )
 async def list_tickets(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: AdminSupportRead,
     session: SessionDep,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -74,7 +97,7 @@ async def list_tickets(
 )
 async def get_ticket(
     _request: Request,
-    _admin: CurrentSuperUser,
+    _admin: AdminSupportRead,
     session: SessionDep,
     ticket_id: uuid.UUID,
 ) -> AdminTicketDetail:
@@ -95,7 +118,7 @@ async def get_ticket(
 )
 async def reply_ticket(
     request: Request,
-    admin: CurrentSuperUser,
+    admin: AdminSupportWrite,
     session: SessionDep,
     ticket_id: uuid.UUID,
     payload: MessageCreate,
@@ -119,7 +142,7 @@ async def reply_ticket(
 )
 async def update_ticket(
     request: Request,
-    admin: CurrentSuperUser,
+    admin: AdminTicketUpdateAuth,
     session: SessionDep,
     ticket_id: uuid.UUID,
     payload: AdminTicketUpdate,
@@ -138,12 +161,15 @@ async def update_ticket(
 async def admin_feed_ws(websocket: WebSocket, session: SessionDep) -> None:
     """One multiplexed socket per admin: the global queue plus any ticket thread.
 
-    Authenticates the cookie as an active admin, auto-subscribes to the ``admin``
-    feed, then accepts ``subscribe``/``unsubscribe`` frames for any existing
-    ticket. Replaces the old per-ticket admin socket.
+    Authenticates the cookie as an admin holding ``support:read`` (superadmins
+    bypass the grant), auto-subscribes to the ``admin`` feed, then accepts
+    ``subscribe``/``unsubscribe`` frames for any existing ticket. Replaces the
+    old per-ticket admin socket.
     """
     user = await get_ws_user(websocket, session)
-    if user is None or user.role != SystemRole.ADMIN.value:
+    if user is None or not await user_has_permission(
+        session, user, Permission.SUPPORT_READ
+    ):
         await websocket.close(code=_WS_POLICY_VIOLATION)
         return
 

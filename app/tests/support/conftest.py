@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import settings
 from app.main import app
 from app.tests.admin.conftest import (
+    grant_all_permissions,
     login,
     promote_to_admin,
     register_and_verify,
@@ -56,10 +57,15 @@ async def make_user_client(factory: ClientFactory, email: str) -> AsyncClient:
 
 
 async def make_admin_client(factory: ClientFactory, email: str) -> AsyncClient:
-    """Build a verified, logged-in admin client."""
+    """Build a verified, logged-in admin client holding every RBAC permission.
+
+    Stays role ``admin`` with all permissions granted so the support tests drive
+    the admin ticket flows through the real per-permission gate.
+    """
     ac = await factory()
     await register_and_verify(ac, email)
     await promote_to_admin(email)
+    await grant_all_permissions(email)
     await login(ac, email)
     return ac
 

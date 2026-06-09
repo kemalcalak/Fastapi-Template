@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -65,6 +65,68 @@ async def list_users_admin(
     return users, total
 
 
+async def list_admins(session: AsyncSession) -> Sequence[User]:
+    """Return all admin and superadmin accounts, newest first."""
+    stmt = (
+        select(User)
+        .where(User.role.in_([SystemRole.ADMIN.value, SystemRole.SUPERADMIN.value]))
+        .order_by(User.created_at.desc())
+    )
+    return (await session.execute(stmt)).scalars().all()
+
+
+async def superadmin_exists(session: AsyncSession) -> bool:
+    """Return True if at least one superadmin account exists."""
+    stmt = (
+        select(func.count())
+        .select_from(User)
+        .where(User.role == SystemRole.SUPERADMIN.value)
+    )
+    return (await session.execute(stmt)).scalar_one() > 0
+
+
+async def root_superadmin_exists(session: AsyncSession) -> bool:
+    """Return True if a designated root superadmin already exists."""
+    stmt = (
+        select(func.count()).select_from(User).where(User.is_root_superadmin.is_(True))
+    )
+    return (await session.execute(stmt)).scalar_one() > 0
+
+
+async def transfer_root_superadmin(
+    session: AsyncSession,
+    *,
+    new_root_id: uuid.UUID,
+    old_root_id: uuid.UUID,
+) -> User:
+    """Atomically move the root flag from the old root to the new one.
+
+    Both updates ride a single transaction/commit so a failure can never leave
+    two root superadmins (the flag has no DB-level uniqueness). Returns the
+    freshly-loaded new root for the response payload.
+    """
+    await session.execute(
+        update(User).where(User.id == new_root_id).values(is_root_superadmin=True)
+    )
+    await session.execute(
+        update(User).where(User.id == old_root_id).values(is_root_superadmin=False)
+    )
+    await session.commit()
+    result = await session.execute(select(User).where(User.id == new_root_id))
+    return result.scalars().one()
+
+
+async def get_earliest_superadmin(session: AsyncSession) -> User | None:
+    """Return the oldest superadmin account (earliest ``created_at``), if any."""
+    stmt = (
+        select(User)
+        .where(User.role == SystemRole.SUPERADMIN.value)
+        .order_by(User.created_at.asc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
 async def is_last_active_admin(session: AsyncSession, user_id: uuid.UUID) -> bool:
     """Return True if ``user_id`` is the only remaining active admin."""
     stmt = (
@@ -78,3 +140,18 @@ async def is_last_active_admin(session: AsyncSession, user_id: uuid.UUID) -> boo
     )
     other_admins = (await session.execute(stmt)).scalar_one()
     return other_admins == 0
+
+
+async def is_last_active_superadmin(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Return True if ``user_id`` is the only remaining active superadmin."""
+    stmt = (
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.role == SystemRole.SUPERADMIN.value,
+            User.is_active.is_(True),
+            User.id != user_id,
+        )
+    )
+    other_superadmins = (await session.execute(stmt)).scalar_one()
+    return other_superadmins == 0

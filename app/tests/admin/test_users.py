@@ -16,6 +16,7 @@ from app.models.user import User
 from app.schemas.user import SystemRole
 from app.tests.admin.conftest import (
     get_user_id,
+    grant_all_permissions,
     login,
     promote_to_admin,
     register_and_verify,
@@ -134,6 +135,7 @@ async def test_regular_user_avatar_visible_to_admin(client: AsyncClient):
     # An admin then views the user list and detail.
     await register_and_verify(client, "admin@test.com")
     await promote_to_admin("admin@test.com")
+    await grant_all_permissions("admin@test.com")
     await login(client, "admin@test.com")
 
     listing = await client.get("/admin/users?search=member@test.com")
@@ -260,31 +262,16 @@ async def test_admin_cannot_change_user_email(admin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_admin_cannot_demote_self(admin_client: AsyncClient):
-    """An admin must not be able to change their own role."""
+async def test_admin_cannot_deactivate_self(admin_client: AsyncClient):
+    """An admin must not be able to deactivate their own account."""
     admin_id = await get_user_id("admin@test.com")
 
     response = await admin_client.patch(
         f"/admin/users/{admin_id}",
-        json={"role": SystemRole.USER.value},
+        json={"is_active": False},
     )
     assert response.status_code == 400
     assert response.json()["error"] == ErrorMessages.ADMIN_CANNOT_MODIFY_SELF
-
-
-@pytest.mark.asyncio
-async def test_demote_non_last_admin_succeeds(admin_client: AsyncClient):
-    """A second admin can be demoted when another active admin still remains."""
-    await register_and_verify(admin_client, "second-admin@test.com")
-    await promote_to_admin("second-admin@test.com")
-    second_admin_id = await get_user_id("second-admin@test.com")
-
-    response = await admin_client.patch(
-        f"/admin/users/{second_admin_id}",
-        json={"role": SystemRole.USER.value},
-    )
-    assert response.status_code == 200
-    assert response.json()["user"]["role"] == SystemRole.USER.value
 
 
 @pytest.mark.asyncio

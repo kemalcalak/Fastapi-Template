@@ -441,3 +441,112 @@ def generate_email_verification_email(
 </html>"""
 
     return {"subject": subject, "html": html, "plain_text": plain_text}
+
+
+def generate_root_transfer_otp_email(
+    code: str,
+    target_email: str,
+    project_name: str,
+    ttl_minutes: int,
+    lang: str = Language.EN,
+) -> dict[str, str]:
+    """Generate the OTP email confirming a root-superadmin transfer.
+
+    Sent to the *current* root superadmin's own address. The code authorizes
+    handing root status to ``target_email``.
+    """
+    if lang == Language.TR:
+        subject = "Ana Süperadmin Devri Doğrulama Kodu"
+        greeting = "Merhaba,"
+        message = (
+            "Ana süperadmin yetkinizi "
+            f"<strong>{target_email}</strong> hesabına devretmek için bir istek "
+            "başlatıldı. Devri tamamlamak için aşağıdaki doğrulama kodunu girin."
+        )
+        code_label = "Doğrulama kodunuz"
+        disclaimer = (
+            f"Bu kod {ttl_minutes} dakika içinde geçersiz olacaktır. Bu isteği "
+            "siz yapmadıysanız, lütfen bu e-postayı dikkate almayın ve şifrenizi "
+            "değiştirin — yetkiniz aktarılmayacaktır."
+        )
+        footer_text = f"&copy; {project_name}. Tüm hakları saklıdır."
+        plain_text = (
+            f"{target_email} hesabına ana süperadmin devri için doğrulama "
+            f"kodunuz: {code} (Geçerlilik: {ttl_minutes} dakika)"
+        )
+    else:
+        subject = "Root Superadmin Transfer Verification Code"
+        greeting = "Hi there,"
+        message = (
+            "A request was started to transfer your root superadmin status to "
+            f"<strong>{target_email}</strong>. Enter the verification code below "
+            "to complete the transfer."
+        )
+        code_label = "Your verification code"
+        disclaimer = (
+            f"This code expires in {ttl_minutes} minutes. If you didn't request "
+            "this, ignore this email and change your password — your status will "
+            "not be transferred."
+        )
+        footer_text = f"&copy; {project_name}. All rights reserved."
+        plain_text = (
+            "Your verification code to transfer root superadmin to "
+            f"{target_email}: {code} (valid for {ttl_minutes} minutes)"
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{subject}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+        @media only screen and (max-width: 620px) {{
+            .wrapper {{ padding: 20px !important; }}
+            .container {{ width: 100% !important; border-radius: 12px !important; overflow: hidden; }}
+            .content {{ padding: 32px 24px !important; }}
+            .header {{ padding: 32px 24px !important; }}
+        }}
+    </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f8fafc;-webkit-font-smoothing:antialiased;">
+    <table class="wrapper" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;padding:48px 0;">
+        <tr>
+            <td align="center">
+                <table class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td class="header" style="background-color:#ffffff;padding:40px 48px;border-bottom:1px solid #f1f5f9;text-align:center;">
+                            <div style="display:inline-block;padding:12px;background-color:#eff6ff;border-radius:12px;margin-bottom:16px;">
+                                <span style="font-size:32px;">🛡️</span>
+                            </div>
+                            <h1 style="margin:0;font-size:24px;font-weight:700;color:#1e293b;letter-spacing:-0.5px;">{project_name}</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="content" style="padding:40px 48px;">
+                            <p style="margin:0 0 16px;font-size:16px;color:#334155;">{greeting}</p>
+                            <p style="margin:0 0 28px;font-size:15px;line-height:1.6;color:#475569;">{message}</p>
+                            <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;text-align:center;">{code_label}</p>
+                            <div style="margin:0 auto 28px;max-width:320px;background-color:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:20px;text-align:center;">
+                                <span style="font-size:34px;font-weight:700;letter-spacing:10px;color:#1e293b;">{code}</span>
+                            </div>
+                            <p style="margin:0;font-size:13px;line-height:1.6;color:#94a3b8;">{disclaimer}</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:32px 48px;background-color:#f8fafc;text-align:center;border-top:1px solid #e2e8f0;">
+                            <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">{project_name}</p>
+                            <p style="margin:0;font-size:12px;color:#94a3b8;">{footer_text}</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
+
+    return {"subject": subject, "html": html, "plain_text": plain_text}

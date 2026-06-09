@@ -24,6 +24,15 @@ class SuccessMessages:
     ADMIN_USER_DELETED = "success.admin.user_deleted"
     ADMIN_PASSWORD_CHANGED = "success.admin.password_changed"
 
+    # RBAC / admin management
+    ADMIN_CREATED = "success.admin.created"
+    ADMIN_ACCOUNT_DELETED = "success.admin.account_deleted"
+    SUPERADMIN_PROMOTED = "success.admin.superadmin_promoted"
+    SUPERADMIN_DEMOTED = "success.admin.superadmin_demoted"
+    ADMIN_PERMISSIONS_UPDATED = "success.admin.permissions_updated"
+    ROOT_TRANSFER_INITIATED = "success.admin.root_transfer_initiated"
+    ROOT_TRANSFERRED = "success.admin.root_transferred"
+
     # File / upload
     FILE_UPLOADED = "success.file.uploaded"
     ADMIN_FILE_DELETED = "success.admin.file_deleted"

@@ -13,6 +13,7 @@ from app.core.security import aget_password_hash, generate_secure_random_passwor
 from app.models.user import User
 from app.repositories.admin.user import (
     is_last_active_admin,
+    is_last_active_superadmin,
     list_users_admin,
 )
 from app.repositories.file import delete_file as delete_file_record
@@ -99,6 +100,22 @@ def _guard_not_self(admin_id: uuid.UUID, target_id: uuid.UUID, message: str) -> 
         )
 
 
+def _guard_superadmin_target(actor: User, target: User) -> None:
+    """Block a non-superadmin from acting on a superadmin account at all.
+
+    Superadmin accounts may only be modified, suspended, or deleted by another
+    superadmin — no permission grant lets a plain admin touch them.
+    """
+    if (
+        target.role == SystemRole.SUPERADMIN.value
+        and actor.role != SystemRole.SUPERADMIN.value
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.ADMIN_CANNOT_MODIFY_SUPERADMIN,
+        )
+
+
 async def _validate_avatar_file_exists(
     session: AsyncSession, file_id: uuid.UUID
 ) -> None:
@@ -138,23 +155,15 @@ async def update_user_admin_service(
 ) -> AdminUserListItem:
     """Apply an admin-authored update to a user, honouring last-admin guards."""
     target = await _load_target(session, user_id)
+    _guard_superadmin_target(current_user, target)
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    new_role = update_data.get("role")
-    if new_role is not None and new_role != target.role:
-        _guard_not_self(
-            current_user.id, target.id, ErrorMessages.ADMIN_CANNOT_MODIFY_SELF
-        )
-        demoting_admin = (
-            target.role == SystemRole.ADMIN.value and new_role != SystemRole.ADMIN
-        )
-        if demoting_admin and await is_last_active_admin(session, target.id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ErrorMessages.ADMIN_CANNOT_DEMOTE_LAST_ADMIN,
-            )
-        update_data["role"] = new_role.value
+    # Role is intentionally not editable here: there is no user→admin or
+    # admin→user transition any more. Admins are provisioned as accounts and
+    # removed by deletion; the superadmin tier is managed only on the admins
+    # surface (root-only promote/demote). ``AdminUserUpdate`` carries no role
+    # field, so nothing to handle.
 
     if "is_active" in update_data and update_data["is_active"] != target.is_active:
         _guard_not_self(
@@ -216,6 +225,15 @@ async def suspend_user_admin_service(
     """
     target = await _load_target(session, user_id)
     _guard_not_self(current_user.id, target.id, ErrorMessages.ADMIN_CANNOT_MODIFY_SELF)
+    _guard_superadmin_target(current_user, target)
+
+    if target.role == SystemRole.SUPERADMIN.value and await is_last_active_superadmin(
+        session, target.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.ADMIN_CANNOT_DELETE_LAST_SUPERADMIN,
+        )
 
     if target.role == SystemRole.ADMIN.value and await is_last_active_admin(
         session, target.id
@@ -285,6 +303,15 @@ async def delete_user_admin_service(
     """Hard-delete a user. Protects the admin's own account and the last admin."""
     target = await _load_target(session, user_id)
     _guard_not_self(current_user.id, target.id, ErrorMessages.ADMIN_CANNOT_DELETE_SELF)
+    _guard_superadmin_target(current_user, target)
+
+    if target.role == SystemRole.SUPERADMIN.value and await is_last_active_superadmin(
+        session, target.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.ADMIN_CANNOT_DELETE_LAST_SUPERADMIN,
+        )
 
     if target.role == SystemRole.ADMIN.value and await is_last_active_admin(
         session, target.id
@@ -327,6 +354,7 @@ async def change_password_admin_service(
     stays auditable and tied to a user-initiated reset request.
     """
     target = await _load_target(session, user_id)
+    _guard_superadmin_target(current_user, target)
 
     new_password = generate_secure_random_password()
     hashed_password = await aget_password_hash(new_password)

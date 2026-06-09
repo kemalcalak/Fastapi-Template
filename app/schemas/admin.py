@@ -3,6 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.admin_permission import Permission
 from app.schemas.common import ActivityDetails
 from app.schemas.file import FileCategory, FilePublic
 from app.schemas.user import SystemRole
@@ -23,7 +24,6 @@ class AdminUserUpdate(BaseModel):
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=100)
-    role: SystemRole | None = None
     is_active: bool | None = None
     is_verified: bool | None = None
     avatar_file_id: uuid.UUID | None = Field(default=None)
@@ -173,3 +173,80 @@ class AdminStats(BaseModel):
     users_verified: int
     users_admins: int
     activities_total: int
+
+
+# --- Admin / RBAC management ------------------------------------------------
+
+
+class AdminListItem(BaseModel):
+    """An admin- or superadmin-tier account with the permissions it holds.
+
+    Built explicitly by the service (not via ``from_attributes``) so it never
+    touches the lazy ``User.permissions`` relationship. Superadmins are reported
+    as holding every permission for display, mirroring their implicit access.
+    """
+
+    id: uuid.UUID
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    role: SystemRole
+    is_active: bool
+    is_root_superadmin: bool = False
+    permissions: list[Permission] = Field(default_factory=list)
+
+
+class AdminListResponse(BaseModel):
+    """Listing of every admin-tier account."""
+
+    data: list[AdminListItem]
+    total: int
+
+
+class AdminCreate(BaseModel):
+    """Create a brand-new admin account with an initial permission set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr = Field(max_length=255)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
+    password: str = Field(min_length=8, max_length=40)
+    permissions: list[Permission] = Field(default_factory=list)
+
+
+class RootTransferRequest(BaseModel):
+    """Initiate transfer of the root superadmin status to another superadmin."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+
+
+class RootTransferConfirm(BaseModel):
+    """Confirm a root-superadmin transfer with the emailed one-time passcode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=4, max_length=12)
+
+
+class AdminPermissionsUpdate(BaseModel):
+    """Replace an admin's permission grants with exactly this set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    permissions: list[Permission]
+
+
+class AdminMutationResponse(BaseModel):
+    """Standard response after creating or updating an admin."""
+
+    admin: AdminListItem
+    message: str
+
+
+class PermissionCatalogResponse(BaseModel):
+    """Every assignable RBAC permission key, for building the grant UI."""
+
+    permissions: list[Permission]

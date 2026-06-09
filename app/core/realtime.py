@@ -1,4 +1,4 @@
-"""Realtime fan-out for support tickets.
+"""Generic realtime fan-out bus (used by support tickets and account events).
 
 A thin in-process registry of WebSocket connections (``ConnectionManager``)
 sits behind a Redis pub/sub bridge. Services ``publish()`` an event to a Redis
@@ -7,11 +7,12 @@ WebSockets subscribed to that topic. Going through Redis means an event raised
 in one worker reaches clients connected to any worker.
 
 Topics are plain strings:
-  * ``ticket:{uuid}`` — the thread of a single ticket (its owner + viewing admin)
-  * ``admin``         — the global admin feed (new tickets, status changes)
-  * ``user:{uuid}``   — a single user's feed (changes across all their tickets)
+  * ``ticket:{uuid}``  — the thread of a single ticket (its owner + viewing admin)
+  * ``admin``          — the global admin feed (new tickets, status changes)
+  * ``user:{uuid}``    — a single user's support feed (across all their tickets)
+  * ``account:{uuid}`` — a single user's account feed (e.g. RBAC permission changes)
 
-The Redis channel is the topic prefixed with ``support:``.
+The Redis channel is the topic prefixed with ``rt:``.
 """
 
 from __future__ import annotations
@@ -23,13 +24,14 @@ import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from app.core.redis import get_redis
 from app.schemas.support import RealtimeEvent
 
 logger = logging.getLogger(__name__)
 
-_CHANNEL_PREFIX = "support:"
+_CHANNEL_PREFIX = "rt:"
 _CHANNEL_PATTERN = f"{_CHANNEL_PREFIX}*"
 
 
@@ -96,12 +98,12 @@ manager = ConnectionManager()
 _listener_task: asyncio.Task[None] | None = None
 
 
-async def publish(topic: str, event: RealtimeEvent) -> None:
+async def publish(topic: str, event: BaseModel) -> None:
     """Publish an event to all subscribers of ``topic`` across processes."""
     await get_redis().publish(f"{_CHANNEL_PREFIX}{topic}", event.model_dump_json())
 
 
-async def publish_safe(topic: str, event: RealtimeEvent) -> None:
+async def publish_safe(topic: str, event: BaseModel) -> None:
     """Publish without letting a realtime failure break the caller's request."""
     try:
         await publish(topic, event)
@@ -115,6 +117,11 @@ ADMIN_TOPIC = "admin"
 def user_topic(user_id: uuid.UUID) -> str:
     """Realtime topic carrying changes across all of a single user's tickets."""
     return f"user:{user_id}"
+
+
+def account_topic(user_id: uuid.UUID) -> str:
+    """Realtime topic carrying account-level changes for a single user."""
+    return f"account:{user_id}"
 
 
 async def publish_feeds(owner_id: uuid.UUID, event: RealtimeEvent) -> None:
@@ -193,6 +200,24 @@ async def serve_multiplex(
         while True:
             raw = await websocket.receive_text()
             await _handle_command(websocket, raw, authorize_ticket)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect_all(websocket)
+
+
+async def serve_account_socket(websocket: WebSocket, *, topic: str) -> None:
+    """Run a notification-only socket subscribed to a single ``topic``.
+
+    The client sends nothing; the loop only awaits ``receive_text`` so a close
+    is detected and the socket is unsubscribed. The socket must already be
+    authenticated; it is accepted here.
+    """
+    await websocket.accept()
+    await manager.connect(topic, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
