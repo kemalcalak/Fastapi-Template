@@ -7,6 +7,7 @@ from sqlalchemy.sql import Select
 
 from app.models.user import User
 from app.schemas.user import SystemRole
+from app.utils.db_search import LIKE_ESCAPE_CHAR, ilike_contains
 
 
 def _filtered_users_stmt(
@@ -22,12 +23,12 @@ def _filtered_users_stmt(
         # ``ILIKE`` on the raw columns so the ``pg_trgm`` GIN indexes on
         # email/first_name/last_name can actually serve the query. Wrapping
         # with ``func.lower(...)`` would defeat the index.
-        like = f"%{search}%"
+        like = ilike_contains(search)
         stmt = stmt.where(
             or_(
-                User.email.ilike(like),
-                User.first_name.ilike(like),
-                User.last_name.ilike(like),
+                User.email.ilike(like, escape=LIKE_ESCAPE_CHAR),
+                User.first_name.ilike(like, escape=LIKE_ESCAPE_CHAR),
+                User.last_name.ilike(like, escape=LIKE_ESCAPE_CHAR),
             )
         )
     if role is not None:

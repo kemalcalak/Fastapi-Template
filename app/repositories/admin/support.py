@@ -8,6 +8,7 @@ from sqlalchemy.sql import Select
 
 from app.models.support import SupportTicket
 from app.models.user import User
+from app.utils.db_search import LIKE_ESCAPE_CHAR, ilike_contains
 
 
 def _filtered_tickets_stmt(
@@ -24,13 +25,13 @@ def _filtered_tickets_stmt(
     """
     stmt = select(SupportTicket)
     if search:
-        like = f"%{search}%"
+        like = ilike_contains(search)
         stmt = stmt.join(User, SupportTicket.user_id == User.id).where(
             or_(
-                SupportTicket.subject.ilike(like),
-                User.email.ilike(like),
-                User.first_name.ilike(like),
-                User.last_name.ilike(like),
+                SupportTicket.subject.ilike(like, escape=LIKE_ESCAPE_CHAR),
+                User.email.ilike(like, escape=LIKE_ESCAPE_CHAR),
+                User.first_name.ilike(like, escape=LIKE_ESCAPE_CHAR),
+                User.last_name.ilike(like, escape=LIKE_ESCAPE_CHAR),
             )
         )
     if status is not None:

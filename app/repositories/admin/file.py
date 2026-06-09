@@ -8,6 +8,7 @@ from sqlalchemy.sql import Select
 
 from app.models.file import File
 from app.models.user import User
+from app.utils.db_search import LIKE_ESCAPE_CHAR, ilike_contains
 
 
 def _filtered_files_stmt(
@@ -23,12 +24,12 @@ def _filtered_files_stmt(
         # Inner-join the uploader and match on name or email. Files without an
         # uploader (uploaded_by_id IS NULL) are naturally excluded, which is
         # correct: they cannot match a person's name.
-        pattern = f"%{uploader}%"
+        pattern = ilike_contains(uploader)
         stmt = stmt.join(User, File.uploaded_by_id == User.id).where(
             or_(
-                User.first_name.ilike(pattern),
-                User.last_name.ilike(pattern),
-                User.email.ilike(pattern),
+                User.first_name.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+                User.last_name.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+                User.email.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
             )
         )
     return stmt
