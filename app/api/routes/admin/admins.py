@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, status
 
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentSuperAdmin, SessionDep
+from app.core.rate_limit import rate_limit_strict
 from app.schemas.admin import (
     AdminCreate,
     AdminListResponse,
@@ -55,6 +56,7 @@ async def list_permission_catalog(
 
 
 @router.post("/transfer-root", response_model=Message)
+@rate_limit_strict("3/minute")
 @audit_unexpected_failure(
     activity_type=ActivityType.UPDATE,
     resource_type=ResourceType.USER,
@@ -78,6 +80,7 @@ async def transfer_root(
 
 
 @router.post("/transfer-root/confirm", response_model=AdminMutationResponse)
+@rate_limit_strict("5/minute")
 @audit_unexpected_failure(
     activity_type=ActivityType.UPDATE,
     resource_type=ResourceType.USER,

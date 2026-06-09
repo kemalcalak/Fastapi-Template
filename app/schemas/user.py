@@ -122,6 +122,7 @@ class UserMe(UserPublic):
     def _drop_null_permissions(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, object]:
+        """Omit the ``permissions`` key entirely when it is None (non-admins)."""
         data = handler(self)
         if self.permissions is None:
             data.pop("permissions", None)

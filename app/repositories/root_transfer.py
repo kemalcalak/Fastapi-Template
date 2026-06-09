@@ -12,6 +12,9 @@ import uuid
 from app.core.redis import get_redis
 
 _KEY_PREFIX = "root_transfer:"
+# A pending transfer is dropped after this many wrong code submissions, forcing
+# the root to restart the flow (defence-in-depth on top of endpoint rate limits).
+_MAX_ATTEMPTS = 3
 
 
 def _key(root_id: uuid.UUID) -> str:
@@ -30,25 +33,38 @@ async def store_root_transfer_otp(
     code: str,
     ttl_seconds: int,
 ) -> None:
-    """Persist a pending transfer (target + hashed OTP) with an expiry."""
-    payload = json.dumps({"target_id": str(target_id), "code_hash": _hash_code(code)})
+    """Persist a pending transfer (target + hashed OTP + attempt counter)."""
+    payload = json.dumps(
+        {"target_id": str(target_id), "code_hash": _hash_code(code), "attempts": 0}
+    )
     await get_redis().set(_key(root_id), payload, ex=ttl_seconds)
 
 
-async def get_root_transfer_target(root_id: uuid.UUID, code: str) -> uuid.UUID | None:
-    """Return the pending target id iff a matching, unexpired OTP exists.
+async def verify_root_transfer_otp(root_id: uuid.UUID, code: str) -> uuid.UUID | None:
+    """Verify an OTP and return the pending target id on a match, else ``None``.
 
-    Returns ``None`` when there is no pending transfer, it has expired, or the
-    supplied code does not match — the caller maps all three to one error so the
-    response never reveals which condition failed.
+    A wrong code consumes one of ``_MAX_ATTEMPTS`` tries (the remaining TTL is
+    preserved); once they are exhausted the pending transfer is dropped so the
+    root must restart the flow. Missing, expired, wrong-code, and exhausted cases
+    all return ``None`` so the response never reveals which one occurred.
     """
-    raw = await get_redis().get(_key(root_id))
+    redis = get_redis()
+    key = _key(root_id)
+    raw = await redis.get(key)
     if not raw:
         return None
     data = json.loads(raw)
-    if data.get("code_hash") != _hash_code(code):
+    if data.get("code_hash") == _hash_code(code):
+        return uuid.UUID(data["target_id"])
+
+    attempts = int(data.get("attempts", 0)) + 1
+    if attempts >= _MAX_ATTEMPTS:
+        await redis.delete(key)
         return None
-    return uuid.UUID(data["target_id"])
+    data["attempts"] = attempts
+    ttl = await redis.ttl(key)
+    await redis.set(key, json.dumps(data), ex=ttl if ttl and ttl > 0 else None)
+    return None
 
 
 async def delete_root_transfer_otp(root_id: uuid.UUID) -> None:

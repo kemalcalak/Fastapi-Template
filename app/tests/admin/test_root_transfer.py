@@ -127,6 +127,37 @@ async def test_confirm_wrong_code_rejected(superadmin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_otp_locks_after_three_wrong_attempts(
+    superadmin_client: AsyncClient, mock_email_send
+):
+    """After 3 wrong codes the OTP is dropped — even the genuine code then fails."""
+    await register_and_verify(superadmin_client, "heir3@test.com")
+    await promote_to_superadmin("heir3@test.com")
+    heir_id = await get_user_id("heir3@test.com")
+
+    await superadmin_client.post(
+        "/admin/admins/transfer-root", json={"user_id": heir_id}
+    )
+    code = _extract_code(mock_email_send)
+    # A code that differs from the real one in every position (always wrong).
+    wrong = "".join("1" if digit == "0" else "0" for digit in code)
+
+    for _ in range(3):
+        attempt = await superadmin_client.post(
+            "/admin/admins/transfer-root/confirm", json={"code": wrong}
+        )
+        assert attempt.status_code == 400
+
+    # The pending transfer is now gone; the genuine code no longer works.
+    response = await superadmin_client.post(
+        "/admin/admins/transfer-root/confirm", json={"code": code}
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == ErrorMessages.INVALID_VERIFICATION_TOKEN
+    assert await _is_root("superadmin@test.com") is True
+
+
+@pytest.mark.asyncio
 async def test_confirm_without_pending_rejected(superadmin_client: AsyncClient):
     """Confirming with no pending transfer is refused."""
     response = await superadmin_client.post(

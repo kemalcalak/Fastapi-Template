@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -91,6 +91,29 @@ async def root_superadmin_exists(session: AsyncSession) -> bool:
         select(func.count()).select_from(User).where(User.is_root_superadmin.is_(True))
     )
     return (await session.execute(stmt)).scalar_one() > 0
+
+
+async def transfer_root_superadmin(
+    session: AsyncSession,
+    *,
+    new_root_id: uuid.UUID,
+    old_root_id: uuid.UUID,
+) -> User:
+    """Atomically move the root flag from the old root to the new one.
+
+    Both updates ride a single transaction/commit so a failure can never leave
+    two root superadmins (the flag has no DB-level uniqueness). Returns the
+    freshly-loaded new root for the response payload.
+    """
+    await session.execute(
+        update(User).where(User.id == new_root_id).values(is_root_superadmin=True)
+    )
+    await session.execute(
+        update(User).where(User.id == old_root_id).values(is_root_superadmin=False)
+    )
+    await session.commit()
+    result = await session.execute(select(User).where(User.id == new_root_id))
+    return result.scalars().one()
 
 
 async def get_earliest_superadmin(session: AsyncSession) -> User | None:

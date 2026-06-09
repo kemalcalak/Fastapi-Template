@@ -115,6 +115,9 @@ async def test_set_permissions_on_non_admin_rejected(superadmin_client: AsyncCli
 @pytest.mark.asyncio
 async def test_delete_admin_account(superadmin_client: AsyncClient):
     """Deleting an admin removes the account from the admin list."""
+    # Seed a second admin so the deleted one is not the last active admin.
+    await register_and_verify(superadmin_client, "keepme@test.com")
+    await promote_to_admin("keepme@test.com")
     await register_and_verify(superadmin_client, "deleteme@test.com")
     await promote_to_admin("deleteme@test.com")
     user_id = await get_user_id("deleteme@test.com")
@@ -125,6 +128,18 @@ async def test_delete_admin_account(superadmin_client: AsyncClient):
 
     listing = await superadmin_client.get("/admin/admins")
     assert user_id not in {row["id"] for row in listing.json()["data"]}
+
+
+@pytest.mark.asyncio
+async def test_delete_last_admin_rejected(superadmin_client: AsyncClient):
+    """The last active admin cannot be deleted (mirrors the /admin/users guard)."""
+    await register_and_verify(superadmin_client, "solo@test.com")
+    await promote_to_admin("solo@test.com")
+    user_id = await get_user_id("solo@test.com")
+
+    response = await superadmin_client.delete(f"/admin/admins/{user_id}")
+    assert response.status_code == 400
+    assert response.json()["error"] == ErrorMessages.ADMIN_CANNOT_DELETE_LAST_ADMIN
 
 
 @pytest.mark.asyncio

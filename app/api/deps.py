@@ -199,6 +199,7 @@ def require_permission(permission: Permission) -> Callable[..., Awaitable[User]]
     """
 
     async def _require(admin: CurrentAdminUser, session: SessionDep) -> User:
+        """Enforce the captured permission for the resolved admin (superadmin bypasses)."""
         await ensure_permission(session, admin, permission)
         return admin
 
@@ -239,6 +240,7 @@ def require_permissions(
     async def _require(
         request: Request, admin: CurrentAdminUser, session: SessionDep
     ) -> User:
+        """Enforce ``base`` plus any field-conditional permissions present in the body."""
         await ensure_permission(session, admin, base)
         if field_map:
             present = await _request_body_fields(request)

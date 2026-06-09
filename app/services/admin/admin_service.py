@@ -14,11 +14,15 @@ from app.repositories.admin.permission import (
     get_permissions_for_users,
     set_user_permissions,
 )
-from app.repositories.admin.user import list_admins
+from app.repositories.admin.user import (
+    is_last_active_admin,
+    list_admins,
+    transfer_root_superadmin,
+)
 from app.repositories.root_transfer import (
     delete_root_transfer_otp,
-    get_root_transfer_target,
     store_root_transfer_otp,
+    verify_root_transfer_otp,
 )
 from app.repositories.user import (
     create_user,
@@ -333,6 +337,12 @@ async def delete_admin_service(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ErrorMessages.NOT_AN_ADMIN,
         )
+    # Mirror the /admin/users delete guard: never remove the last active admin.
+    if await is_last_active_admin(session, target.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.ADMIN_CANNOT_DELETE_LAST_ADMIN,
+        )
 
     target_id = target.id
     target_email = target.email
@@ -439,7 +449,7 @@ async def confirm_root_transfer_service(
             detail=ErrorMessages.ONLY_ROOT_SUPERADMIN,
         )
 
-    target_id = await get_root_transfer_target(current_user.id, payload.code)
+    target_id = await verify_root_transfer_otp(current_user.id, payload.code)
     if target_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -454,8 +464,11 @@ async def confirm_root_transfer_service(
             detail=ErrorMessages.NOT_A_SUPERADMIN,
         )
 
-    await update_user(session, target, {"is_root_superadmin": True})
-    await update_user(session, current_user, {"is_root_superadmin": False})
+    # Atomic hand-over (single transaction in the repository) so a crash mid-way
+    # can never leave two roots — there is no DB-level uniqueness on the flag.
+    target = await transfer_root_superadmin(
+        session, new_root_id=target.id, old_root_id=current_user.id
+    )
     await delete_root_transfer_otp(current_user.id)
 
     await log_activity(
