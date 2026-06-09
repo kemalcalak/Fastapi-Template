@@ -85,8 +85,14 @@ def register_middleware(app: FastAPI) -> None:
             CORSMiddleware,
             allow_origins=settings.all_cors_origins,
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Accept-Language",
+                "X-Requested-With",
+            ],
         )
 
     # Reject requests whose Host header is not in the allowlist. In production
