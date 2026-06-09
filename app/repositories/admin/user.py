@@ -85,6 +85,25 @@ async def superadmin_exists(session: AsyncSession) -> bool:
     return (await session.execute(stmt)).scalar_one() > 0
 
 
+async def root_superadmin_exists(session: AsyncSession) -> bool:
+    """Return True if a designated root superadmin already exists."""
+    stmt = (
+        select(func.count()).select_from(User).where(User.is_root_superadmin.is_(True))
+    )
+    return (await session.execute(stmt)).scalar_one() > 0
+
+
+async def get_earliest_superadmin(session: AsyncSession) -> User | None:
+    """Return the oldest superadmin account (earliest ``created_at``), if any."""
+    stmt = (
+        select(User)
+        .where(User.role == SystemRole.SUPERADMIN.value)
+        .order_by(User.created_at.asc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
 async def is_last_active_admin(session: AsyncSession, user_id: uuid.UUID) -> bool:
     """Return True if ``user_id`` is the only remaining active admin."""
     stmt = (

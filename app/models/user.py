@@ -55,6 +55,9 @@ class User(Base):
     last_name: Mapped[str | None] = mapped_column(String(100), default=None)
     title: Mapped[str | None] = mapped_column(String(100), default=None)
     role: Mapped[str] = mapped_column(String(20), default="user")
+    # Marks the single root superadmin (the first one seeded). Only the root may
+    # promote admins to superadmin or demote other superadmins back to admin.
+    is_root_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
     hashed_password: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now
