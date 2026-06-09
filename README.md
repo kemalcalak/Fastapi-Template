@@ -40,9 +40,9 @@ This template integrates the best-in-class Python ecosystem tools to provide a s
 - **Audit Trail:** `user_activity` table records auth events and CRUD actions with IP / user agent, plus the **HTTP status code** of each event (`200` on success, the raised error code on failure) — filterable in the admin panel. The `audit_unexpected_failure` decorator captures unexpected route failures.
 - **Smart Email Validation & Delivery:** Built-in asynchronous email sending with SMTP, domain MX record checking using `dnspython`, and auto-updating disposable email provider filtering via Redis cache.
 - **Standardized API Responses:** Global exception handlers standardizing success/error schemas, utilizing a centralized `messages` module (`app/core/messages/`) to prevent hardcoded responses.
-- **Role-Based Access Control (RBAC):** Three roles — `user` / `admin` / `superadmin`. Superadmins bypass every check and are the only role that manages admins; plain admins are gated per **`resource:action`** permission (`users:read`, `users:role`, `support:update`, …) stored in `admin_permission` and enforced by a single `require_permission(...)` dependency. Role-change invariants are baked in (a superadmin's role is immutable; only a superadmin can change an admin's role; the last superadmin is protected). See [Admin & RBAC](#-admin--rbac-roles--permissions).
+- **Role-Based Access Control (RBAC):** Three roles — `user` / `admin` / `superadmin`. Superadmins bypass every check and **create/delete admins** and assign their permissions; plain admins are gated per **`resource:action`** permission (`users:read`, `users:write`, `support:update`, …) stored in `admin_permission` and enforced by a single `require_permission(...)` dependency. The **superadmin tier** (promote an admin to superadmin, demote a superadmin, transfer root via email OTP) is reserved for the **root superadmin** (`is_root_superadmin`); the last active superadmin is always protected. See [Admin & RBAC](#-admin--rbac-roles--permissions).
 - **Support / Ticketing System:** Full ticket lifecycle — open, reply with image attachments, status/priority, admin assignment — fanned out over a **Redis-backed WebSocket bus** so the ticket thread, the admin queue, and per-user feeds update live across workers. See [Support System & Realtime](#-support-ticketing-system--realtime).
-- **First Superadmin Seed:** On startup a **superadmin** is created from `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` if none exists (a matching existing account is promoted instead) — guaranteeing a root account.
+- **First Superadmin Seed:** On startup a **root superadmin** (`is_root_superadmin`) is created from `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` if none exists (a matching existing account is promoted instead; older deployments get their oldest superadmin flagged as root) — guaranteeing a root account.
 - **Tooling:** [uv](https://docs.astral.sh/uv/) for blazing-fast package management, and [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
 - **Testing:** Comprehensive async testing setup with `pytest` and `pytest-asyncio`, in-memory SQLite via `aiosqlite`, `fakeredis`, and autouse SMTP/MX patches — tests never hit Postgres or the network.
 
@@ -317,9 +317,10 @@ Three roles layer the admin surface from least to most privileged:
 | --- | --- |
 | `user` | Regular app user. No admin surface. |
 | `admin` | Reaches the admin panel, but **every action is gated by the permissions granted to them**. |
-| `superadmin` | Bypasses all permission checks; the only role that can promote/demote admins and assign their permissions. |
+| `superadmin` | Bypasses all permission checks; creates/deletes admins and assigns their permissions. |
+| `superadmin` *(root)* | The first seeded superadmin (`is_root_superadmin`). Additionally owns the **superadmin tier**: promote an admin to superadmin, demote a superadmin, and transfer root. |
 
-**Permission model.** Permissions are `resource:action` keys — `users:read`, `users:write`, `users:role`, `users:delete`, `users:suspend`, `users:password_reset`, `files:read`, `files:delete`, `support:read`, `support:write`, `support:update`, `activities:read`, `stats:read`. A plain admin's grants live in the `admin_permission` table; superadmins implicitly hold all of them.
+**Permission model.** Permissions are `resource:action` keys — `users:read`, `users:write`, `users:delete`, `users:suspend`, `users:password_reset`, `files:read`, `files:delete`, `support:read`, `support:write`, `support:update`, `activities:read`, `stats:read` (12 in total). A plain admin's grants live in the `admin_permission` table; superadmins implicitly hold all of them.
 
 **Enforcement.** Every admin endpoint declares exactly what it needs with one dependency:
 
@@ -331,12 +332,13 @@ async def list_users(
 ): ...
 ```
 
-`require_permission` chains auth → active account → admin role → grant lookup, and superadmins short-circuit. Payload-conditional actions are enforced on the same layer (changing a `role` additionally needs `users:role`; reassigning a ticket needs `support:update`). `GET /users/me` returns the caller's `permissions` (for admins only) so the frontend mirrors the exact gating.
+`require_permission` chains auth → active account → admin role → grant lookup, and superadmins short-circuit. Payload-conditional actions are enforced on the same layer (reassigning a ticket needs `support:update`). `GET /users/me` returns the caller's `permissions` (for admins only) plus `is_root_superadmin`, so the frontend mirrors the exact gating.
 
 **Hard invariants** (`services/admin/`):
 
-- A superadmin's role can never be changed — the seeded root stays a superadmin forever.
-- Only a superadmin can change an admin's role; a plain admin with `users:role` may promote a *user* but cannot touch other admins.
+- There is **no user↔admin role transition** on the users surface — admins are provisioned as accounts and removed by deletion (there is no demote-to-user path).
+- The **superadmin tier is root-only**: only the root superadmin may promote an admin to superadmin or demote a superadmin back to admin.
+- The root superadmin's own role is immutable; it can only be handed over via the **email-OTP root transfer** (a one-time code is sent to the current root's address).
 - A superadmin can only be modified/deleted by another superadmin, and the **last active superadmin** is always protected.
 
 **Managing admins** (superadmin-only — `routes/admin/admins.py`):
@@ -345,11 +347,15 @@ async def list_users(
 | --- | --- |
 | `GET /admin/admins` | List admin-tier accounts with their permissions. |
 | `GET /admin/admins/permissions` | The full permission catalog (powers the grant UI). |
-| `POST /admin/admins` | Promote a user to admin with an initial permission set. |
+| `POST /admin/admins` | Create a new admin account with an initial permission set. |
 | `PATCH /admin/admins/{id}/permissions` | Replace an admin's grants. |
-| `DELETE /admin/admins/{id}` | Demote an admin back to a regular user. |
+| `DELETE /admin/admins/{id}` | Delete an admin account. |
+| `POST /admin/admins/{id}/promote` | Promote an admin to superadmin (**root only**). |
+| `POST /admin/admins/{id}/demote` | Demote a superadmin back to admin (**root only**). |
+| `POST /admin/admins/transfer-root` | Email a one-time code to begin a root transfer (**root only**). |
+| `POST /admin/admins/transfer-root/confirm` | Confirm the OTP and hand over root (**root only**). |
 
-After any grant change a `permissions_updated` realtime event is pushed to the affected admin (see below), so their session re-fetches `/users/me` and the UI updates without a re-login.
+After any grant or tier change a `permissions_updated` realtime event is pushed to the affected account(s) (see below), so their session re-fetches `/users/me` and the UI updates without a re-login.
 
 ---
 

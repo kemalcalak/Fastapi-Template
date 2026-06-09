@@ -189,13 +189,14 @@ Yeni global concern → kendi modülüne `register_X(app)` / `init_X(app)` ile e
 
 ### 3.18 RBAC (roller + izinler)
 
-- Üç rol: `user` / `admin` / `superadmin` ([schemas/user.py](app/schemas/user.py) `SystemRole`). Superadmin tüm izin kontrolünü bypass eder ve admin'leri yöneten tek roldür.
-- İzinler `resource:action` key'leri ([schemas/admin_permission.py](app/schemas/admin_permission.py) `Permission` enum). Plain admin'in grant'ları `admin_permission` tablosunda ([models/admin_permission.py](app/models/admin_permission.py)); superadmin hepsine implicit sahip.
-- **Her admin endpoint tek `Depends(require_permission(Permission.X))` ile korunur** ([deps.py](app/api/deps.py)). `require_permission`/`require_permissions` → `ensure_permission` zincirine iner (auth → active → admin rolü → grant; superadmin short-circuit). **Payload-koşullu** izinler `require_permissions(base, conditional={...})` ile raw body alanına göre ek izin ister (rol değişimi → `users:role`, ticket atama → `support:update`).
-- Admin-yönetim uçları ([routes/admin/admins.py](app/api/routes/admin/admins.py)) **`CurrentSuperAdmin`** ile korunur (list / promote / demote / izin-set / katalog).
-- **Rol değişmezlik invariant'ları serviste** ([services/admin/user_service.py](app/services/admin/user_service.py)): superadmin rolü değiştirilemez (`SUPERADMIN_ROLE_IMMUTABLE`); admin rolünü yalnızca superadmin değiştirir (`ADMIN_CANNOT_CHANGE_ADMIN_ROLE`); plain admin superadmin hedefe dokunamaz (`_guard_superadmin_target`); son superadmin korunur (`is_last_active_superadmin`).
-- `/users/me` admin'e `permissions` döndürür (superadmin/user'a alanı hiç göndermez) — FE gating birebir bunu yansıtır.
-- İzin değişince hedef admin'e `permissions_updated` realtime event'i basılır ([core/realtime.py](app/core/realtime.py) `account:{id}` topic) — FE re-fetch eder.
+- Üç rol: `user` / `admin` / `superadmin` ([schemas/user.py](app/schemas/user.py) `SystemRole`). Superadmin tüm izin kontrolünü bypass eder ve admin'leri **oluşturur/siler** + izin atar. **Root superadmin** (`is_root_superadmin` kolonu, [models/user.py](app/models/user.py)) ek olarak **superadmin katmanını** yönetir: admin→superadmin terfi, superadmin→admin düşürme, root devri. İlk seed edilen superadmin root'tur ([core/bootstrap.py](app/core/bootstrap.py)).
+- İzinler `resource:action` key'leri (12 adet) ([schemas/admin_permission.py](app/schemas/admin_permission.py) `Permission` enum; `users:role` **yok**). Plain admin'in grant'ları `admin_permission` tablosunda ([models/admin_permission.py](app/models/admin_permission.py)); superadmin hepsine implicit sahip.
+- **Her admin endpoint tek `Depends(require_permission(Permission.X))` ile korunur** ([deps.py](app/api/deps.py)). `require_permission`/`require_permissions` → `ensure_permission` zincirine iner (auth → active → admin rolü → grant; superadmin short-circuit). **Payload-koşullu** izinler `require_permissions(base, conditional={...})` ile raw body alanına göre ek izin ister (ticket atama → `support:update`).
+- Admin-yönetim uçları ([routes/admin/admins.py](app/api/routes/admin/admins.py)) **`CurrentSuperAdmin`** ile korunur: list / katalog / **create** (`POST`) / izin-set (`PATCH`) / **delete account** (`DELETE /{id}`) / **promote→superadmin** (`POST /{id}/promote`) / **demote→admin** (`POST /{id}/demote`) / **root devri** (`POST /transfer-root` + `/confirm`). Son üçü serviste ayrıca **root** kontrolü ister (`ONLY_ROOT_SUPERADMIN`).
+- **Rol/katman invariant'ları serviste** ([services/admin/admin_service.py](app/services/admin/admin_service.py), [user_service.py](app/services/admin/user_service.py)): users yüzeyinde **user↔admin rol geçişi yok** (admin'ler hesap olarak oluşturulur/silinir; `AdminUserUpdate`'te `role` alanı yok); **superadmin katmanı root-only** (root değilse `ONLY_ROOT_SUPERADMIN`); root'un kendi rolü değişmez (self-demote `SUPERADMIN_ROLE_IMMUTABLE`, yalnızca OTP devriyle aktarılır); plain admin superadmin hedefe dokunamaz (`_guard_superadmin_target`); son superadmin korunur (`is_last_active_superadmin`).
+- **Root devri email-OTP ile** ([services/admin/admin_service.py](app/services/admin/admin_service.py) + [repositories/root_transfer.py](app/repositories/root_transfer.py)): root `/transfer-root` ile mevcut bir superadmin hedef seçer → 6 haneli OTP root'un **kendi** mailine gider, Redis'te **hash'li + TTL (3 dk)**; `/transfer-root/confirm` kodu doğrular, root bayrağını taşır, iki tarafa `permissions_updated` basar.
+- `/users/me` admin'e `permissions` döndürür (superadmin/user'a alanı hiç göndermez) + her kullanıcıya `is_root_superadmin` — FE gating birebir bunu yansıtır.
+- İzin/katman değişince hedef hesab(lar)a `permissions_updated` realtime event'i basılır ([core/realtime.py](app/core/realtime.py) `account:{id}` topic) — FE re-fetch eder.
 
 ---
 
@@ -257,8 +258,8 @@ Yeni global concern → kendi modülüne `register_X(app)` / `init_X(app)` ile e
 - `verify_token` `expected_type` parametresini değiştirme/kaldırma — yanlış tip token kabul edilebilir.
 - **Admin endpoint'i `require_permission(...)` / `CurrentAdminUser` olmadan** açık — RBAC yetki kapısı yok.
 - **Admin-yönetim ucu (`/admin/admins/*`) `CurrentSuperAdmin` olmadan** — superadmin-özel kapı atlanmış.
-- **Koşullu izinleri (rol değişimi → `users:role`, ticket atama → `support:update`) enforce etmeyen** mutation — raw payload izni atlanırsa yanlış işlem 403 yerine geçer.
-- **Superadmin koruma invariant'larını gevşetme** (`_guard_superadmin_target`, `is_last_active_superadmin`, `SUPERADMIN_ROLE_IMMUTABLE`, `ADMIN_CANNOT_CHANGE_ADMIN_ROLE`).
+- **Koşullu izni (ticket atama → `support:update`) enforce etmeyen** mutation — raw payload izni atlanırsa yanlış işlem 403 yerine geçer.
+- **Superadmin/root koruma invariant'larını gevşetme** (`_guard_superadmin_target`, `is_last_active_superadmin`, `SUPERADMIN_ROLE_IMMUTABLE`) veya **superadmin-katman aksiyonlarının (promote / demote / transfer-root) `ONLY_ROOT_SUPERADMIN` kontrolünü kaldırma**.
 - **`/users/me` payload'ına superadmin/user için `permissions` ekleme** (yalnızca plain admin'e dönmeli).
 
 ### 5.5 Pydantic / Schemas
