@@ -40,7 +40,9 @@ This template integrates the best-in-class Python ecosystem tools to provide a s
 - **Audit Trail:** `user_activity` table records auth events and CRUD actions with IP / user agent, plus the **HTTP status code** of each event (`200` on success, the raised error code on failure) — filterable in the admin panel. The `audit_unexpected_failure` decorator captures unexpected route failures.
 - **Smart Email Validation & Delivery:** Built-in asynchronous email sending with SMTP, domain MX record checking using `dnspython`, and auto-updating disposable email provider filtering via Redis cache.
 - **Standardized API Responses:** Global exception handlers standardizing success/error schemas, utilizing a centralized `messages` module (`app/core/messages/`) to prevent hardcoded responses.
-- **First Superuser Seed:** On startup, an initial admin is created from `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` if none exists.
+- **Role-Based Access Control (RBAC):** Three roles — `user` / `admin` / `superadmin`. Superadmins bypass every check and are the only role that manages admins; plain admins are gated per **`resource:action`** permission (`users:read`, `users:role`, `support:update`, …) stored in `admin_permission` and enforced by a single `require_permission(...)` dependency. Role-change invariants are baked in (a superadmin's role is immutable; only a superadmin can change an admin's role; the last superadmin is protected). See [Admin & RBAC](#-admin--rbac-roles--permissions).
+- **Support / Ticketing System:** Full ticket lifecycle — open, reply with image attachments, status/priority, admin assignment — fanned out over a **Redis-backed WebSocket bus** so the ticket thread, the admin queue, and per-user feeds update live across workers. See [Support System & Realtime](#-support-ticketing-system--realtime).
+- **First Superadmin Seed:** On startup a **superadmin** is created from `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` if none exists (a matching existing account is promoted instead) — guaranteeing a root account.
 - **Tooling:** [uv](https://docs.astral.sh/uv/) for blazing-fast package management, and [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
 - **Testing:** Comprehensive async testing setup with `pytest` and `pytest-asyncio`, in-memory SQLite via `aiosqlite`, `fakeredis`, and autouse SMTP/MX patches — tests never hit Postgres or the network.
 
@@ -307,6 +309,69 @@ Image uploads are backed by [Cloudinary](https://cloudinary.com/). The binary li
 
 ---
 
+## 🔐 Admin & RBAC (Roles + Permissions)
+
+Three roles layer the admin surface from least to most privileged:
+
+| Role | Access |
+| --- | --- |
+| `user` | Regular app user. No admin surface. |
+| `admin` | Reaches the admin panel, but **every action is gated by the permissions granted to them**. |
+| `superadmin` | Bypasses all permission checks; the only role that can promote/demote admins and assign their permissions. |
+
+**Permission model.** Permissions are `resource:action` keys — `users:read`, `users:write`, `users:role`, `users:delete`, `users:suspend`, `users:password_reset`, `files:read`, `files:delete`, `support:read`, `support:write`, `support:update`, `activities:read`, `stats:read`. A plain admin's grants live in the `admin_permission` table; superadmins implicitly hold all of them.
+
+**Enforcement.** Every admin endpoint declares exactly what it needs with one dependency:
+
+```python
+@router.get("")
+async def list_users(
+    _admin: Annotated[User, Depends(require_permission(Permission.USERS_READ))],
+    session: SessionDep,
+): ...
+```
+
+`require_permission` chains auth → active account → admin role → grant lookup, and superadmins short-circuit. Payload-conditional actions are enforced on the same layer (changing a `role` additionally needs `users:role`; reassigning a ticket needs `support:update`). `GET /users/me` returns the caller's `permissions` (for admins only) so the frontend mirrors the exact gating.
+
+**Hard invariants** (`services/admin/`):
+
+- A superadmin's role can never be changed — the seeded root stays a superadmin forever.
+- Only a superadmin can change an admin's role; a plain admin with `users:role` may promote a *user* but cannot touch other admins.
+- A superadmin can only be modified/deleted by another superadmin, and the **last active superadmin** is always protected.
+
+**Managing admins** (superadmin-only — `routes/admin/admins.py`):
+
+| Method & path | Purpose |
+| --- | --- |
+| `GET /admin/admins` | List admin-tier accounts with their permissions. |
+| `GET /admin/admins/permissions` | The full permission catalog (powers the grant UI). |
+| `POST /admin/admins` | Promote a user to admin with an initial permission set. |
+| `PATCH /admin/admins/{id}/permissions` | Replace an admin's grants. |
+| `DELETE /admin/admins/{id}` | Demote an admin back to a regular user. |
+
+After any grant change a `permissions_updated` realtime event is pushed to the affected admin (see below), so their session re-fetches `/users/me` and the UI updates without a re-login.
+
+---
+
+## 🎫 Support (Ticketing) System & Realtime
+
+A complete support desk built on a generic realtime bus that any feature can reuse.
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `POST /support/tickets` | user | Open a ticket (optional image attachments). |
+| `GET /support/tickets` · `/{id}` | owner | List / view own tickets and message thread. |
+| `POST /support/tickets/{id}/messages` | owner | Reply to own ticket. |
+| `GET /admin/support/tickets` · `/{id}` | `support:read` | Admin queue + full ticket view. |
+| `POST /admin/support/tickets/{id}/messages` | `support:write` | Admin reply (auto-assigns when unassigned). |
+| `PATCH /admin/support/tickets/{id}` | `support:write` (+ `support:update` to reassign) | Change status / priority / assignee. |
+| `WS /admin/support/ws` · `/support/ws` | admin / owner | Multiplexed ticket + queue feed. |
+| `WS /users/me/events` | any user | Per-user account feed (e.g. live `permissions_updated`). |
+
+**Realtime bus (`app/core/realtime.py`).** A thin in-process `ConnectionManager` sits behind a Redis pub/sub bridge: services `publish()` to a topic — `ticket:{id}`, `admin`, `user:{id}`, or `account:{id}` — and a per-worker listener fans the event to the matching local sockets, so an event raised in one worker reaches clients connected to any worker. Publishing is best-effort (`publish_safe`), so a realtime hiccup never breaks the originating request.
+
+---
+
 ## 📂 Project Structure
 
 ```bash
@@ -314,10 +379,11 @@ Image uploads are backed by [Cloudinary](https://cloudinary.com/). The binary li
 │   ├── alembic/          # Alembic env + versions/ (generated migration scripts)
 │   ├── api/              # API Layer: routers, deps.py, exception handlers, decorators
 │   │   └── routes/
-│   │       ├── auth.py, users.py, files.py, health.py
-│   │       └── admin/    # Admin surface (gated by CurrentSuperUser)
-│   ├── core/             # config, db, security, redis, rate_limit, email, storage, messages/
-│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, File, …)
+│   │       ├── auth.py, users.py, files.py, support.py, health.py
+│   │       └── admin/    # Admin surface — RBAC-gated via require_permission;
+│   │                     #   admins/ (admin management) is superadmin-only
+│   ├── core/             # config, db, security, redis, rate_limit, email, storage, realtime, bootstrap, messages/
+│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, File, SupportTicket, AdminPermission, …)
 │   ├── repositories/     # Data Layer: async DB queries (no business rules)
 │   ├── schemas/          # Pydantic v2 DTOs (Create / Update / Response per domain)
 │   ├── services/         # Business Logic Layer: pure async functions, take AsyncSession
