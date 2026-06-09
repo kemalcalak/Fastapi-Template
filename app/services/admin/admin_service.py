@@ -3,16 +3,23 @@ import uuid
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
 from app.core.realtime import account_topic, publish_safe
-from app.core.security import aget_password_hash
+from app.core.security import aget_password_hash, generate_otp_code
 from app.models.user import User
 from app.repositories.admin.permission import (
     get_permissions_for_users,
     set_user_permissions,
 )
 from app.repositories.admin.user import list_admins
+from app.repositories.root_transfer import (
+    delete_root_transfer_otp,
+    get_root_transfer_target,
+    store_root_transfer_otp,
+)
 from app.repositories.user import (
     create_user,
     delete_user,
@@ -28,12 +35,18 @@ from app.schemas.admin import (
     AdminMutationResponse,
     AdminPermissionsUpdate,
     PermissionCatalogResponse,
+    RootTransferConfirm,
+    RootTransferRequest,
 )
 from app.schemas.admin_permission import Permission
 from app.schemas.msg import Message
-from app.schemas.user import SystemRole
+from app.schemas.user import Language, SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
+from app.utils.email_templates import generate_root_transfer_otp_email
+
+_ROOT_TRANSFER_OTP_TTL_SECONDS = 180
+_ROOT_TRANSFER_OTP_LENGTH = 6
 
 
 def _to_list_item(user: User, permissions: list[Permission]) -> AdminListItem:
@@ -336,3 +349,128 @@ async def delete_admin_service(
     )
 
     return Message(success=True, message=SuccessMessages.ADMIN_ACCOUNT_DELETED)
+
+
+async def initiate_root_transfer_service(
+    request: Request,
+    session: AsyncSession,
+    current_user: User,
+    payload: RootTransferRequest,
+    lang: Language = Language.EN,
+) -> Message:
+    """Start an email-OTP root-superadmin transfer to another superadmin.
+
+    Only the root may initiate. A one-time passcode is emailed to the root's own
+    address; the transfer completes only once that code is confirmed, proving
+    the initiator controls the root account.
+    """
+    if not current_user.is_root_superadmin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.ONLY_ROOT_SUPERADMIN,
+        )
+
+    target = await get_user_by_id(session, payload.user_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorMessages.USER_NOT_FOUND,
+        )
+    if target.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.CANNOT_TRANSFER_TO_SELF,
+        )
+    if target.role != SystemRole.SUPERADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.NOT_A_SUPERADMIN,
+        )
+
+    code = generate_otp_code(_ROOT_TRANSFER_OTP_LENGTH)
+    await store_root_transfer_otp(
+        current_user.id, target.id, code, _ROOT_TRANSFER_OTP_TTL_SECONDS
+    )
+
+    email_data = generate_root_transfer_otp_email(
+        code=code,
+        target_email=target.email,
+        project_name=settings.PROJECT_NAME,
+        ttl_minutes=_ROOT_TRANSFER_OTP_TTL_SECONDS // 60,
+        lang=lang,
+    )
+    await send_email(
+        to=current_user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(current_user.id),
+        is_html=True,
+    )
+
+    await log_activity(
+        session=session,
+        user_id=current_user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.USER,
+        resource_id=target.id,
+        details={"action": "root_transfer_initiated"},
+        request=request,
+    )
+
+    return Message(success=True, message=SuccessMessages.ROOT_TRANSFER_INITIATED)
+
+
+async def confirm_root_transfer_service(
+    request: Request,
+    session: AsyncSession,
+    current_user: User,
+    payload: RootTransferConfirm,
+) -> AdminMutationResponse:
+    """Complete a root transfer once the emailed OTP is confirmed.
+
+    Moves the root flag from the current root to the pending target. Both
+    accounts are signalled so their browsers refetch ``/users/me`` and pick up
+    the new root status immediately.
+    """
+    if not current_user.is_root_superadmin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorMessages.ONLY_ROOT_SUPERADMIN,
+        )
+
+    target_id = await get_root_transfer_target(current_user.id, payload.code)
+    if target_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.INVALID_VERIFICATION_TOKEN,
+        )
+
+    target = await get_user_by_id(session, target_id)
+    if not target or target.role != SystemRole.SUPERADMIN.value:
+        await delete_root_transfer_otp(current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorMessages.NOT_A_SUPERADMIN,
+        )
+
+    await update_user(session, target, {"is_root_superadmin": True})
+    await update_user(session, current_user, {"is_root_superadmin": False})
+    await delete_root_transfer_otp(current_user.id)
+
+    await log_activity(
+        session=session,
+        user_id=current_user.id,
+        activity_type=ActivityType.UPDATE,
+        resource_type=ResourceType.USER,
+        resource_id=target.id,
+        details={"action": "root_transferred", "new_root": str(target.id)},
+        request=request,
+    )
+    await _notify_permissions_changed(target.id)
+    await _notify_permissions_changed(current_user.id)
+
+    return AdminMutationResponse(
+        admin=_to_list_item(target, _effective_permissions(target, [])),
+        message=SuccessMessages.ROOT_TRANSFERRED,
+    )

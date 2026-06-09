@@ -224,11 +224,11 @@ class RootTransferRequest(BaseModel):
 
 
 class RootTransferConfirm(BaseModel):
-    """Confirm a root-superadmin transfer via the emailed verification token."""
+    """Confirm a root-superadmin transfer with the emailed one-time passcode."""
 
     model_config = ConfigDict(extra="forbid")
 
-    token: str
+    code: str = Field(min_length=4, max_length=12)
 
 
 class AdminPermissionsUpdate(BaseModel):

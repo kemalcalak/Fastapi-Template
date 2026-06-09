@@ -10,14 +10,19 @@ from app.schemas.admin import (
     AdminMutationResponse,
     AdminPermissionsUpdate,
     PermissionCatalogResponse,
+    RootTransferConfirm,
+    RootTransferRequest,
 )
 from app.schemas.msg import Message
+from app.schemas.user import Language
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.admin_service import (
+    confirm_root_transfer_service,
     create_admin_service,
     delete_admin_service,
     demote_superadmin_service,
     get_permission_catalog_service,
+    initiate_root_transfer_service,
     list_admins_service,
     promote_admin_to_superadmin_service,
     update_admin_permissions_service,
@@ -47,6 +52,50 @@ async def list_permission_catalog(
 ) -> PermissionCatalogResponse:
     """Return all assignable permission keys for the grant UI (superadmin only)."""
     return get_permission_catalog_service()
+
+
+@router.post("/transfer-root", response_model=Message)
+@audit_unexpected_failure(
+    activity_type=ActivityType.UPDATE,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/admins/transfer-root",
+)
+async def transfer_root(
+    request: Request,
+    current_user: CurrentSuperAdmin,
+    session: SessionDep,
+    payload: RootTransferRequest,
+    lang: Language = Language.EN,
+) -> Message:
+    """Email an OTP to begin handing root status to another superadmin (root only)."""
+    return await initiate_root_transfer_service(
+        request=request,
+        session=session,
+        current_user=current_user,
+        payload=payload,
+        lang=lang,
+    )
+
+
+@router.post("/transfer-root/confirm", response_model=AdminMutationResponse)
+@audit_unexpected_failure(
+    activity_type=ActivityType.UPDATE,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/admins/transfer-root/confirm",
+)
+async def confirm_transfer_root(
+    request: Request,
+    current_user: CurrentSuperAdmin,
+    session: SessionDep,
+    payload: RootTransferConfirm,
+) -> AdminMutationResponse:
+    """Complete a root transfer with the emailed OTP (root only)."""
+    return await confirm_root_transfer_service(
+        request=request,
+        session=session,
+        current_user=current_user,
+        payload=payload,
+    )
 
 
 @router.post(
