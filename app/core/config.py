@@ -50,6 +50,33 @@ class Settings(BaseSettings):
             origins.append(str(self.FRONTEND_HOST).rstrip("/"))
         return origins
 
+    # Host header allowlist enforced by TrustedHostMiddleware. Comma-separated
+    # in the environment (e.g. ``api.example.com,example.com``).
+    ALLOWED_HOSTS: Annotated[list[str] | str, BeforeValidator(parse_cors)] = []
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def trusted_hosts(self) -> list[str]:
+        """Hosts accepted by ``TrustedHostMiddleware``.
+
+        Outside production we return ``["*"]`` so local dev and the test client
+        (which sends ``Host: testserver``) are never blocked. Production
+        enforces the explicit ``ALLOWED_HOSTS`` list plus the frontend host,
+        falling back to ``["*"]`` only if nothing was configured so a missing
+        value can never brick the deployment.
+        """
+        if self.ENVIRONMENT != "production":
+            return ["*"]
+
+        from urllib.parse import urlparse
+
+        hosts = [h.strip() for h in self.ALLOWED_HOSTS if h.strip()]
+        if self.FRONTEND_HOST:
+            hostname = urlparse(str(self.FRONTEND_HOST)).hostname
+            if hostname:
+                hosts.append(hostname)
+        return hosts or ["*"]
+
     PROJECT_NAME: str
     SENTRY_DSN: str | None = None
 
