@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     )
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
-    # 8 days — long enough to avoid surprise logouts, short enough to limit
-    # blast radius of a stolen token when combined with refresh rotation.
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
+    # 60 minutes — short-lived access token limits the blast radius of a
+    # stolen token. Clients transparently renew via the refresh-token flow.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     EMAIL_RESET_TOKEN_EXPIRE_HOURS: int = 48
     FRONTEND_HOST: str = "http://localhost:5173"

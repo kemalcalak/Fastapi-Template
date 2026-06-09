@@ -138,11 +138,15 @@ async def refresh_token(
     endpoint="/logout",
 )
 async def logout(request: Request, response: Response, session: SessionDep) -> Message:
-    """Clear refresh token cookie and invalidate token in the blacklist."""
+    """Clear the auth cookies and revoke both tokens in the blacklist."""
     refresh_token_cookie = request.cookies.get("refresh_token")
-    if refresh_token_cookie:
+    access_token_cookie = request.cookies.get("access_token")
+    if refresh_token_cookie or access_token_cookie:
         await logout_service(
-            request=request, session=session, refresh_token=refresh_token_cookie
+            request=request,
+            session=session,
+            refresh_token=refresh_token_cookie,
+            access_token=access_token_cookie,
         )
     _clear_auth_cookies(response)
     return Message(success=True, message=SuccessMessages.LOGOUT_SUCCESS)
@@ -243,14 +247,19 @@ async def resend_verification(
 )
 async def change_password(
     request: Request,
+    response: Response,
     session: SessionDep,
     current_user: CurrentActiveUser,
     body: UpdatePassword,
 ) -> Message:
-    """Change user password while logged in."""
-    return await change_password_service(
+    """Change user password while logged in, then end the current session."""
+    result = await change_password_service(
         request=request,
         session=session,
         current_user=current_user,
         update_password=body,
+        access_token=request.cookies.get("access_token"),
+        refresh_token=request.cookies.get("refresh_token"),
     )
+    _clear_auth_cookies(response)
+    return result

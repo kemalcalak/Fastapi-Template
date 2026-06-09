@@ -284,17 +284,32 @@ async def refresh_token_service(
     )
 
 
+async def _revoke_token(token: str | None) -> None:
+    """Blacklist a token if present and not already revoked.
+
+    The guard avoids redundant writes when the same token is revoked twice
+    (e.g. a double logout) without raising.
+    """
+    if token and not await is_token_blacklisted(token):
+        await add_token_to_blacklist(token)
+
+
 async def logout_service(
-    request: Request | None, session: AsyncSession, refresh_token: str | None
+    request: Request | None,
+    session: AsyncSession,
+    refresh_token: str | None,
+    access_token: str | None = None,
 ) -> None:
     """
-    Invalidates a refresh token by adding it to the blacklist.
+    Invalidate the session by blacklisting both the refresh and access tokens.
+
+    Revoking the access token too closes the window where a stolen access
+    token would otherwise stay valid until its own expiry after logout.
     """
+    await _revoke_token(access_token)
+
     if refresh_token:
-        # Check if it was already blacklisted to avoid unique constraint errors
-        is_blacklisted = await is_token_blacklisted(refresh_token)
-        if not is_blacklisted:
-            await add_token_to_blacklist(refresh_token)
+        await _revoke_token(refresh_token)
 
         # Log success if possible
         user_id = verify_refresh_token(refresh_token)
@@ -486,9 +501,15 @@ async def change_password_service(
     session: AsyncSession,
     current_user: User,
     update_password: UpdatePassword,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
 ) -> Message:
     """
     Change user password after verifying current password.
+
+    On success the current session's access and refresh tokens are revoked so
+    a password change forces re-authentication and immediately invalidates any
+    token that may have been stolen before the change.
     """
     if not await averify_password(
         update_password.current_password, current_user.hashed_password
@@ -510,6 +531,11 @@ async def change_password_service(
 
     hashed_password = await aget_password_hash(update_password.new_password)
     await update_user(session, current_user, {"hashed_password": hashed_password})
+
+    # Revoke the current session so the change forces a fresh login and any
+    # token captured before the change stops working immediately.
+    await _revoke_token(access_token)
+    await _revoke_token(refresh_token)
 
     await log_activity(
         session=session,
