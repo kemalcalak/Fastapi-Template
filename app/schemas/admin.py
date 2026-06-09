@@ -192,6 +192,7 @@ class AdminListItem(BaseModel):
     last_name: str | None = None
     role: SystemRole
     is_active: bool
+    is_root_superadmin: bool = False
     permissions: list[Permission] = Field(default_factory=list)
 
 
@@ -202,13 +203,32 @@ class AdminListResponse(BaseModel):
     total: int
 
 
-class AdminPromote(BaseModel):
-    """Promote an existing user to admin with an initial permission set."""
+class AdminCreate(BaseModel):
+    """Create a brand-new admin account with an initial permission set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr = Field(max_length=255)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
+    password: str = Field(min_length=8, max_length=40)
+    permissions: list[Permission] = Field(default_factory=list)
+
+
+class RootTransferRequest(BaseModel):
+    """Initiate transfer of the root superadmin status to another superadmin."""
 
     model_config = ConfigDict(extra="forbid")
 
     user_id: uuid.UUID
-    permissions: list[Permission] = Field(default_factory=list)
+
+
+class RootTransferConfirm(BaseModel):
+    """Confirm a root-superadmin transfer via the emailed verification token."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
 
 
 class AdminPermissionsUpdate(BaseModel):

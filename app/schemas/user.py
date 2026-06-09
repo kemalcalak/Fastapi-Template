@@ -99,6 +99,7 @@ class DeleteAccount(BaseModel):
 class UserPublic(UserBase):
     id: uuid.UUID
     role: SystemRole
+    is_root_superadmin: bool = False
     created_at: datetime
     updated_at: datetime
     deactivated_at: datetime | None = None
