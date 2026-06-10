@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentActiveUser, SessionDep
+from app.api.deps import CurrentActiveUser, SessionDep, reusable_oauth2
 from app.core.config import settings
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
@@ -36,10 +36,11 @@ from app.services.auth_service import (
 
 router = APIRouter()
 
-# The refresh cookie is limited to the refresh endpoint only so it is never
-# sent on unrelated requests. This path must match for both set_cookie and
-# delete_cookie calls or the cookie cannot be cleared.
-_REFRESH_COOKIE_PATH = f"{settings.API_V1_STR}/auth/refresh"
+# The refresh cookie is scoped to the auth router so it is sent on the auth
+# endpoints that must revoke it — /refresh (rotation), /logout, and
+# /change-password — but not on the rest of the API. This path must match for
+# both set_cookie and delete_cookie calls or the cookie cannot be cleared.
+_REFRESH_COOKIE_PATH = f"{settings.API_V1_STR}/auth"
 _COOKIE_SECURE = settings.ENVIRONMENT != "local"
 
 
@@ -252,14 +253,18 @@ async def change_password(
     session: SessionDep,
     current_user: CurrentActiveUser,
     body: UpdatePassword,
+    bearer_token: Annotated[str | None, Depends(reusable_oauth2)] = None,
 ) -> Message:
     """Change user password while logged in, then end the current session."""
+    # Resolve the access token the same way ``get_current_user`` does so the
+    # session is revoked for Bearer clients too, not only cookie-based ones.
+    access_token = request.cookies.get("access_token") or bearer_token
     result = await change_password_service(
         request=request,
         session=session,
         current_user=current_user,
         update_password=body,
-        access_token=request.cookies.get("access_token"),
+        access_token=access_token,
         refresh_token=request.cookies.get("refresh_token"),
     )
     _clear_auth_cookies(response)

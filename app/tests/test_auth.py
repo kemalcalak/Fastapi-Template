@@ -118,6 +118,52 @@ async def test_refresh_token_and_logout(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_logout_revokes_refresh_token_directly(client: AsyncClient):
+    """Logout blacklists the refresh token itself, not only via rotation.
+
+    The refresh cookie is scoped to ``/auth`` so it now reaches ``/auth/logout``;
+    this guards against regressing that scope back to ``/auth/refresh`` (which
+    would silently make logout unable to revoke the refresh token).
+    """
+    from sqlalchemy import update
+
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
+    email = "logout_revoke@test.com"
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "Password123!",
+            "first_name": "L",
+            "last_name": "R",
+        },
+    )
+    async with TestingSessionLocal() as session:
+        await session.execute(
+            update(User).where(User.email == email).values(is_verified=True)
+        )
+        await session.commit()
+
+    login = await client.post(
+        "/auth/login", data={"username": email, "password": "Password123!"}
+    )
+    refresh_cookie = login.cookies.get("refresh_token")
+    assert refresh_cookie is not None
+
+    # Log out without refreshing first, so a rejection below can only come from
+    # logout revoking the refresh token — not from rotation on /auth/refresh.
+    logout = await client.post("/auth/logout")
+    assert logout.status_code == 200
+
+    client.cookies.set("refresh_token", refresh_cookie)
+    replay = await client.post("/auth/refresh")
+    assert replay.status_code == 401
+    assert replay.json()["error"] == ErrorMessages.INVALID_TOKEN
+
+
+@pytest.mark.asyncio
 async def test_refresh_token_rotation(client: AsyncClient):
     from sqlalchemy import update
 
@@ -352,7 +398,10 @@ async def test_change_password(client: AsyncClient):
         "/auth/login", data={"username": email, "password": old_password}
     )
     assert login_response.status_code == 200
-    assert login_response.cookies.get("access_token") is not None
+    old_access_token = login_response.cookies.get("access_token")
+    old_refresh_token = login_response.cookies.get("refresh_token")
+    assert old_access_token is not None
+    assert old_refresh_token is not None
 
     # 4. Test Change Password - Failure (Wrong current password)
     fail_response = await client.patch(
@@ -370,6 +419,19 @@ async def test_change_password(client: AsyncClient):
     assert success_response.status_code == 200
     assert success_response.json()["success"] is True
     assert success_response.json()["message"] == SuccessMessages.PASSWORD_CHANGE_SUCCESS
+
+    # 5b. The session held before the change is revoked immediately: the old
+    # access token is rejected on a protected route and the old refresh token
+    # can no longer mint new access tokens.
+    client.cookies.set("access_token", old_access_token)
+    me_response = await client.get("/users/me")
+    assert me_response.status_code == 401
+
+    client.cookies.set("refresh_token", old_refresh_token)
+    refresh_response = await client.post("/auth/refresh")
+    assert refresh_response.status_code == 401
+
+    client.cookies.clear()
 
     # 6. Verify Login works with NEW password
     new_login_response = await client.post(
