@@ -154,10 +154,12 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER_PASSWORD: str
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
-        if value == "changethis":
+        is_blank = not (value or "").strip()
+        if value == "changethis" or is_blank:
+            reason = "empty" if is_blank else 'the insecure default "changethis"'
             message = (
-                f'The value of {var_name} is "changethis", '
-                "for security, please change it, at least for deployments."
+                f"The value of {var_name} is {reason}; "
+                "for security, please set it, at least for deployments."
             )
             if self.ENVIRONMENT == "local":
                 warnings.warn(message, stacklevel=1)

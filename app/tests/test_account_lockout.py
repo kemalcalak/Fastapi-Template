@@ -51,7 +51,7 @@ async def test_clear_login_attempts_unlocks():
 async def test_authenticate_locks_and_emails(client: AsyncClient, mock_email_send):
     """Wrong passwords lock the account, email the owner, then block valid logins."""
     email = "lockflow@test.com"
-    password = "password123"
+    password = "Password123!"
 
     await client.post(
         "/auth/register",

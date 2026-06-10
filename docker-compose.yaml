@@ -26,7 +26,10 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
     ports:
-      - "5432:5432"
+      # Bind address is configurable; defaults to loopback so the database is
+      # not exposed on the host's network interfaces. Inter-container access
+      # uses the compose network regardless of this binding.
+      - "${DOCKER_BIND_HOST:-127.0.0.1}:5432:5432"
 
   backend:
     build:
@@ -114,7 +117,8 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "6379:6379"
+      # Same configurable loopback default as the database (see DOCKER_BIND_HOST).
+      - "${DOCKER_BIND_HOST:-127.0.0.1}:6379:6379"
     volumes:
       - app-redis-data:/data
 

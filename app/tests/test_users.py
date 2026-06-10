@@ -14,7 +14,7 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
         "/auth/register",
         json={
             "email": "user_test@test.com",
-            "password": "password123",
+            "password": "Password123!",
             "first_name": "Test",
             "last_name": "User",
             "title": "Tester",
@@ -40,7 +40,7 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
         "/auth/login",
         data={
             "username": "user_test@test.com",
-            "password": "password123",
+            "password": "Password123!",
         },
     )
     assert response.status_code == 200
@@ -109,7 +109,7 @@ async def test_delete_user_me_schedules_deletion(auth_client: AsyncClient):
     response = await auth_client.request(
         "DELETE",
         url="/users/me",
-        json={"password": "password123"},
+        json={"password": "Password123!"},
     )
     assert response.status_code == 200
 
@@ -132,7 +132,7 @@ async def test_delete_user_me_schedules_deletion(auth_client: AsyncClient):
 async def test_delete_user_me_twice_returns_400(auth_client: AsyncClient):
     """Second deactivate attempt while already pending must fail fast."""
     first = await auth_client.request(
-        "DELETE", url="/users/me", json={"password": "password123"}
+        "DELETE", url="/users/me", json={"password": "Password123!"}
     )
     assert first.status_code == 200
 
@@ -140,11 +140,11 @@ async def test_delete_user_me_twice_returns_400(auth_client: AsyncClient):
     # fresh credentials — deactivated users are allowed to log back in.
     await auth_client.post(
         "/auth/login",
-        data={"username": "user_test@test.com", "password": "password123"},
+        data={"username": "user_test@test.com", "password": "Password123!"},
     )
 
     second = await auth_client.request(
-        "DELETE", url="/users/me", json={"password": "password123"}
+        "DELETE", url="/users/me", json={"password": "Password123!"}
     )
     assert second.status_code == 400
 
@@ -153,12 +153,12 @@ async def test_delete_user_me_twice_returns_400(auth_client: AsyncClient):
 async def test_deactivated_user_blocked_from_update(auth_client: AsyncClient):
     """PATCH /users/me must reject deactivated callers."""
     await auth_client.request(
-        "DELETE", url="/users/me", json={"password": "password123"}
+        "DELETE", url="/users/me", json={"password": "Password123!"}
     )
     # Re-login so cookies are present again.
     await auth_client.post(
         "/auth/login",
-        data={"username": "user_test@test.com", "password": "password123"},
+        data={"username": "user_test@test.com", "password": "Password123!"},
     )
 
     response = await auth_client.patch("/users/me", json={"first_name": "Hacked"})
@@ -174,11 +174,11 @@ async def test_reactivate_cancels_deletion(auth_client: AsyncClient):
     from app.tests.conftest import TestingSessionLocal
 
     await auth_client.request(
-        "DELETE", url="/users/me", json={"password": "password123"}
+        "DELETE", url="/users/me", json={"password": "Password123!"}
     )
     await auth_client.post(
         "/auth/login",
-        data={"username": "user_test@test.com", "password": "password123"},
+        data={"username": "user_test@test.com", "password": "Password123!"},
     )
 
     response = await auth_client.post("/users/me/reactivate")
@@ -228,11 +228,11 @@ async def test_suspended_user_cannot_self_reactivate(auth_client: AsyncClient):
 async def test_me_exposes_deletion_schedule(auth_client: AsyncClient):
     """GET /users/me must include deletion_scheduled_at for deactivated users."""
     await auth_client.request(
-        "DELETE", url="/users/me", json={"password": "password123"}
+        "DELETE", url="/users/me", json={"password": "Password123!"}
     )
     await auth_client.post(
         "/auth/login",
-        data={"username": "user_test@test.com", "password": "password123"},
+        data={"username": "user_test@test.com", "password": "Password123!"},
     )
 
     response = await auth_client.get("/users/me")

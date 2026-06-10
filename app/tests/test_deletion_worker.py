@@ -28,7 +28,7 @@ async def _make_user(
     async with TestingSessionLocal() as session:
         user = User(
             email=email,
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             is_active=scheduled_at is None,
             is_verified=True,
             deactivated_at=scheduled_at - timedelta(days=30) if scheduled_at else None,
@@ -156,7 +156,7 @@ async def test_suspended_user_is_never_due_for_deletion():
     async with TestingSessionLocal() as session:
         suspended = User(
             email="suspended-worker@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             is_active=False,
             is_verified=True,
             suspended_at=utc_now(),

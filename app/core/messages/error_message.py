@@ -14,6 +14,7 @@ class ErrorMessages:
     EMAIL_ALREADY_EXISTS = "error.user.email_exists"
     INVALID_CREDENTIALS = "error.user.invalid_credentials"
     INVALID_PASSWORD = "error.user.invalid_password"
+    WEAK_PASSWORD = "error.user.password_weak"
     USER_INACTIVE = "error.user.user_inactive"
     EMAIL_NOT_VERIFIED = "error.user.email_not_verified"
     INVALID_VERIFICATION_TOKEN = "error.user.invalid_verification_token"

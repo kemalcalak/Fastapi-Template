@@ -13,7 +13,7 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\nfake-image-bytes"
 
 
 async def _register_verify_login(
-    client: AsyncClient, email: str, password: str = "password123"
+    client: AsyncClient, email: str, password: str = "Password123!"
 ) -> None:
     """Register a user, mark them verified, and log in on the client."""
     await client.post(

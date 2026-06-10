@@ -94,6 +94,11 @@ ENVIRONMENT="local"
 FIRST_SUPERUSER="admin@example.com"
 FIRST_SUPERUSER_PASSWORD="changethis"
 FRONTEND_HOST="http://localhost:5173"
+# Comma-separated Host header allowlist enforced in production only.
+ALLOWED_HOSTS=""
+
+# Host address Docker binds the DB/Redis ports to (loopback by default).
+DOCKER_BIND_HOST="127.0.0.1"
 
 # Database Settings
 POSTGRES_SERVER="localhost"
