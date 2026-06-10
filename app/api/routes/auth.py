@@ -128,6 +128,7 @@ async def refresh_token(
         request=request, session=session, refresh_token=refresh_token_cookie
     )
     _set_access_cookie(response, result.access_token)
+    _set_refresh_cookie(response, result.refresh_token)
     return CookieRefreshResponse(message=result.message)
 
 

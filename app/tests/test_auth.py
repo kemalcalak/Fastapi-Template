@@ -102,6 +102,55 @@ async def test_refresh_token_and_logout(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_rotation(client: AsyncClient):
+    from sqlalchemy import update
+
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
+    email = "rotate@test.com"
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "password123",
+            "first_name": "R",
+            "last_name": "T",
+        },
+    )
+    async with TestingSessionLocal() as session:
+        await session.execute(
+            update(User).where(User.email == email).values(is_verified=True)
+        )
+        await session.commit()
+
+    login = await client.post(
+        "/auth/login", data={"username": email, "password": "password123"}
+    )
+    assert login.status_code == 200
+    r1 = login.cookies.get("refresh_token")
+    assert r1 is not None
+
+    # First refresh rotates the token: a new refresh cookie, different from r1.
+    client.cookies.set("refresh_token", r1)
+    first = await client.post("/auth/refresh")
+    assert first.status_code == 200
+    r2 = first.cookies.get("refresh_token")
+    assert r2 is not None and r2 != r1
+
+    # Replaying the old refresh token is rejected (revoked on rotation).
+    client.cookies.set("refresh_token", r1)
+    replay = await client.post("/auth/refresh")
+    assert replay.status_code == 401
+    assert replay.json()["error"] == ErrorMessages.INVALID_TOKEN
+
+    # The rotated token works for a subsequent refresh.
+    client.cookies.set("refresh_token", r2)
+    second = await client.post("/auth/refresh")
+    assert second.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_verify_email_flow(client: AsyncClient):
     from sqlalchemy import select
 

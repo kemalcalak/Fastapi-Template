@@ -31,7 +31,7 @@ from app.repositories.token_blacklist import (
 )
 from app.repositories.user import get_user_by_email, get_user_by_id, update_user
 from app.schemas.msg import Message
-from app.schemas.token import AuthTokens, Token
+from app.schemas.token import AuthTokens, RefreshedTokens
 from app.schemas.user import (
     Language,
     SystemRole,
@@ -263,10 +263,13 @@ async def login_service(
 
 async def refresh_token_service(
     request: Request | None, session: AsyncSession, refresh_token: str
-) -> Token:
+) -> RefreshedTokens:
     """
-    Validate refresh token and return a new access token.
-    Checks if token is blacklisted and the user is still active.
+    Validate the refresh token and rotate the session credentials.
+
+    On success the presented refresh token is revoked and a fresh access +
+    refresh pair is issued. Replaying the old (now-blacklisted) refresh token
+    is rejected by the blacklist guard below, so a leaked token is single-use.
     """
     user_id = verify_refresh_token(refresh_token)
     if not user_id:
@@ -340,8 +343,14 @@ async def refresh_token_service(
             detail=ErrorMessages.ACCOUNT_SUSPENDED,
         )
 
-    return Token(
-        access_token=create_access_token(user_id), message=SuccessMessages.LOGIN_SUCCESS
+    # Rotate: revoke the presented refresh token and mint a fresh pair so the
+    # old token can never be reused (replay is caught by the guard above).
+    await _revoke_token(refresh_token)
+
+    return RefreshedTokens(
+        access_token=create_access_token(user_id),
+        refresh_token=create_refresh_token(user_id),
+        message=SuccessMessages.LOGIN_SUCCESS,
     )
 
 
