@@ -94,7 +94,7 @@ async def _notify_permissions_changed(
     await notify(
         session,
         user_id=user_id,
-        type=NotificationType.ADMIN_PERMISSIONS_CHANGED,
+        notification_type=NotificationType.ADMIN_PERMISSIONS_CHANGED,
         data={"action": action},
     )
 

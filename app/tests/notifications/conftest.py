@@ -33,9 +33,11 @@ async def get_user_id(client: AsyncClient) -> uuid.UUID:
 async def seed_notification(
     user_id: uuid.UUID,
     *,
-    type: NotificationType = NotificationType.SUPPORT_TICKET_REPLIED,
+    notification_type: NotificationType = NotificationType.SUPPORT_TICKET_REPLIED,
     data: dict[str, JsonValue] | None = None,
 ) -> Notification:
     """Persist one notification for ``user_id`` through the real use case."""
     async with TestingSessionLocal() as session:
-        return await notify(session, user_id=user_id, type=type, data=data)
+        return await notify(
+            session, user_id=user_id, notification_type=notification_type, data=data
+        )

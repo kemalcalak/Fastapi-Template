@@ -151,7 +151,7 @@ async def test_mark_all_read(client_factory: ClientFactory):
     user_id = await get_user_id(user)
     seeded = [
         await seed_notification(
-            user_id, type=NotificationType.ADMIN_PERMISSIONS_CHANGED
+            user_id, notification_type=NotificationType.ADMIN_PERMISSIONS_CHANGED
         )
         for _ in range(3)
     ]

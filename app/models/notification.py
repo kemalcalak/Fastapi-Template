@@ -34,7 +34,7 @@ class Notification(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Recipient. CASCADE: deleting a user removes their notifications.
+    # Recipient.
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=False,

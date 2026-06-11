@@ -257,7 +257,7 @@ async def reply_ticket_admin_service(
         await notify(
             session,
             user_id=ticket.user_id,
-            type=NotificationType.SUPPORT_TICKET_REPLIED,
+            notification_type=NotificationType.SUPPORT_TICKET_REPLIED,
             data={"ticket_id": str(ticket.id), "subject": ticket.subject},
         )
 
@@ -322,7 +322,7 @@ async def update_ticket_admin_service(
         await notify(
             session,
             user_id=ticket.user_id,
-            type=NotificationType.SUPPORT_TICKET_STATUS_CHANGED,
+            notification_type=NotificationType.SUPPORT_TICKET_STATUS_CHANGED,
             data={
                 "ticket_id": str(ticket.id),
                 "subject": ticket.subject,

@@ -25,7 +25,7 @@ async def notify(
     session: AsyncSession,
     *,
     user_id: uuid.UUID,
-    type: NotificationType,
+    notification_type: NotificationType,
     data: dict[str, JsonValue] | None = None,
 ) -> Notification:
     """Persist a notification for ``user_id`` and push it over their feed.
@@ -36,7 +36,7 @@ async def notify(
     """
     notification = Notification(
         user_id=user_id,
-        type=type.value,
+        type=notification_type.value,
         data=data or {},
     )
     notification = await create_notification(session, notification)
