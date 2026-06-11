@@ -61,6 +61,10 @@ class ErrorMessages:
     FILE_FORBIDDEN = "error.file.forbidden"
     FILE_UPLOAD_FAILED = "error.file.upload_failed"
 
+    # Notifications
+    NOTIFICATION_NOT_FOUND = "error.notification.not_found"
+    NOTIFICATION_ACCESS_DENIED = "error.notification.access_denied"
+
     # Support / tickets
     TICKET_NOT_FOUND = "error.support.ticket_not_found"
     TICKET_ACCESS_DENIED = "error.support.ticket_access_denied"

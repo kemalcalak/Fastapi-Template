@@ -11,6 +11,7 @@ Topics are plain strings:
   * ``admin``          — the global admin feed (new tickets, status changes)
   * ``user:{uuid}``    — a single user's support feed (across all their tickets)
   * ``account:{uuid}`` — a single user's account feed (e.g. RBAC permission changes)
+  * ``notifications:{uuid}`` — a single user's persistent in-app notification feed
 
 The Redis channel is the topic prefixed with ``rt:``.
 """
@@ -122,6 +123,11 @@ def user_topic(user_id: uuid.UUID) -> str:
 def account_topic(user_id: uuid.UUID) -> str:
     """Realtime topic carrying account-level changes for a single user."""
     return f"account:{user_id}"
+
+
+def notifications_topic(user_id: uuid.UUID) -> str:
+    """Realtime topic carrying a single user's in-app notifications."""
+    return f"notifications:{user_id}"
 
 
 async def publish_feeds(owner_id: uuid.UUID, event: RealtimeEvent) -> None:
