@@ -37,6 +37,10 @@ class SuccessMessages:
     FILE_UPLOADED = "success.file.uploaded"
     ADMIN_FILE_DELETED = "success.admin.file_deleted"
 
+    # Notifications
+    NOTIFICATION_READ = "success.notification.read"
+    NOTIFICATIONS_ALL_READ = "success.notification.all_read"
+
     # Support / tickets
     TICKET_CREATED = "success.support.ticket_created"
     TICKET_CLOSED = "success.support.ticket_closed"
