@@ -44,9 +44,11 @@ from app.schemas.admin import (
 )
 from app.schemas.admin_permission import Permission
 from app.schemas.msg import Message
+from app.schemas.notification import NotificationType
 from app.schemas.user import Language, SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
+from app.use_cases.notify import notify
 from app.utils.email_templates import generate_root_transfer_otp_email
 
 _ROOT_TRANSFER_OTP_TTL_SECONDS = 180
@@ -74,15 +76,26 @@ def _effective_permissions(user: User, granted: list[Permission]) -> list[Permis
     return granted
 
 
-async def _notify_permissions_changed(user_id: uuid.UUID) -> None:
-    """Push a best-effort ``permissions_updated`` event to the user's socket.
+async def _notify_permissions_changed(
+    session: AsyncSession, user_id: uuid.UUID, *, action: str
+) -> None:
+    """Signal a permission change live and record it in the user's inbox.
 
-    The browser uses this as a signal to refetch ``/users/me`` so a permission
-    grant or revoke takes effect immediately without a re-login.
+    The account-socket event makes the browser refetch ``/users/me`` so the
+    grant or revoke takes effect immediately without a re-login; the persistent
+    notification tells the user *that* it happened even if they were offline.
+    ``action`` mirrors the audit-log action string so the frontend can phrase
+    the message per change kind.
     """
     await publish_safe(
         account_topic(user_id),
         AccountEvent(type=AccountEventType.PERMISSIONS_UPDATED),
+    )
+    await notify(
+        session,
+        user_id=user_id,
+        type=NotificationType.ADMIN_PERMISSIONS_CHANGED,
+        data={"action": action},
     )
 
 
@@ -202,7 +215,9 @@ async def promote_admin_to_superadmin_service(
         details={"action": "promoted_to_superadmin"},
         request=request,
     )
-    await _notify_permissions_changed(target.id)
+    await _notify_permissions_changed(
+        session, target.id, action="promoted_to_superadmin"
+    )
 
     return AdminMutationResponse(
         admin=_to_list_item(target, _effective_permissions(target, [])),
@@ -257,7 +272,9 @@ async def demote_superadmin_service(
         details={"action": "demoted_superadmin_to_admin"},
         request=request,
     )
-    await _notify_permissions_changed(target.id)
+    await _notify_permissions_changed(
+        session, target.id, action="demoted_superadmin_to_admin"
+    )
 
     return AdminMutationResponse(
         admin=_to_list_item(target, []),
@@ -306,7 +323,9 @@ async def update_admin_permissions_service(
         },
         request=request,
     )
-    await _notify_permissions_changed(target.id)
+    await _notify_permissions_changed(
+        session, target.id, action="set_admin_permissions"
+    )
 
     return AdminMutationResponse(
         admin=_to_list_item(target, permissions),
@@ -480,8 +499,10 @@ async def confirm_root_transfer_service(
         details={"action": "root_transferred", "new_root": str(target.id)},
         request=request,
     )
-    await _notify_permissions_changed(target.id)
-    await _notify_permissions_changed(current_user.id)
+    await _notify_permissions_changed(session, target.id, action="root_transferred")
+    await _notify_permissions_changed(
+        session, current_user.id, action="root_transferred"
+    )
 
     return AdminMutationResponse(
         admin=_to_list_item(target, _effective_permissions(target, [])),
