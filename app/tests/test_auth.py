@@ -11,7 +11,7 @@ async def test_register(client: AsyncClient):
         "/auth/register",
         json={
             "email": "test@test.com",
-            "password": "password123",
+            "password": "Password123!",
             "first_name": "Test",
             "last_name": "User",
             "title": "Tester",
@@ -24,13 +24,29 @@ async def test_register(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_register_rejects_weak_password(client: AsyncClient):
+    # "password123" has no uppercase and no special character -> rejected.
+    response = await client.post(
+        "/auth/register",
+        json={
+            "email": "weakpw@test.com",
+            "password": "password123",
+            "first_name": "W",
+            "last_name": "P",
+        },
+    )
+    assert response.status_code == 422
+    assert ErrorMessages.WEAK_PASSWORD in response.text
+
+
+@pytest.mark.asyncio
 async def test_login(client: AsyncClient):
     # Register first
     await client.post(
         "/auth/register",
         json={
             "email": "test2@test.com",
-            "password": "password123",
+            "password": "Password123!",
             "first_name": "Test2",
             "last_name": "User2",
         },
@@ -38,7 +54,7 @@ async def test_login(client: AsyncClient):
 
     # Login should fail because of unverified email
     response = await client.post(
-        "/auth/login", data={"username": "test2@test.com", "password": "password123"}
+        "/auth/login", data={"username": "test2@test.com", "password": "Password123!"}
     )
     assert response.status_code == 403
     assert response.json()["error"] == ErrorMessages.EMAIL_NOT_VERIFIED
@@ -59,7 +75,7 @@ async def test_refresh_token_and_logout(client: AsyncClient):
         "/auth/register",
         json={
             "email": "test3@test.com",
-            "password": "password123",
+            "password": "Password123!",
             "first_name": "Test3",
             "last_name": "User3",
         },
@@ -73,7 +89,7 @@ async def test_refresh_token_and_logout(client: AsyncClient):
         await session.commit()
 
     login_response = await client.post(
-        "/auth/login", data={"username": "test3@test.com", "password": "password123"}
+        "/auth/login", data={"username": "test3@test.com", "password": "Password123!"}
     )
     assert login_response.status_code == 200
 
@@ -102,6 +118,101 @@ async def test_refresh_token_and_logout(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_logout_revokes_refresh_token_directly(client: AsyncClient):
+    """Logout blacklists the refresh token itself, not only via rotation.
+
+    The refresh cookie is scoped to ``/auth`` so it now reaches ``/auth/logout``;
+    this guards against regressing that scope back to ``/auth/refresh`` (which
+    would silently make logout unable to revoke the refresh token).
+    """
+    from sqlalchemy import update
+
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
+    email = "logout_revoke@test.com"
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "Password123!",
+            "first_name": "L",
+            "last_name": "R",
+        },
+    )
+    async with TestingSessionLocal() as session:
+        await session.execute(
+            update(User).where(User.email == email).values(is_verified=True)
+        )
+        await session.commit()
+
+    login = await client.post(
+        "/auth/login", data={"username": email, "password": "Password123!"}
+    )
+    refresh_cookie = login.cookies.get("refresh_token")
+    assert refresh_cookie is not None
+
+    # Log out without refreshing first, so a rejection below can only come from
+    # logout revoking the refresh token — not from rotation on /auth/refresh.
+    logout = await client.post("/auth/logout")
+    assert logout.status_code == 200
+
+    client.cookies.set("refresh_token", refresh_cookie)
+    replay = await client.post("/auth/refresh")
+    assert replay.status_code == 401
+    assert replay.json()["error"] == ErrorMessages.INVALID_TOKEN
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_rotation(client: AsyncClient):
+    from sqlalchemy import update
+
+    from app.models.user import User
+    from app.tests.conftest import TestingSessionLocal
+
+    email = "rotate@test.com"
+    await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "Password123!",
+            "first_name": "R",
+            "last_name": "T",
+        },
+    )
+    async with TestingSessionLocal() as session:
+        await session.execute(
+            update(User).where(User.email == email).values(is_verified=True)
+        )
+        await session.commit()
+
+    login = await client.post(
+        "/auth/login", data={"username": email, "password": "Password123!"}
+    )
+    assert login.status_code == 200
+    r1 = login.cookies.get("refresh_token")
+    assert r1 is not None
+
+    # First refresh rotates the token: a new refresh cookie, different from r1.
+    client.cookies.set("refresh_token", r1)
+    first = await client.post("/auth/refresh")
+    assert first.status_code == 200
+    r2 = first.cookies.get("refresh_token")
+    assert r2 is not None and r2 != r1
+
+    # Replaying the old refresh token is rejected (revoked on rotation).
+    client.cookies.set("refresh_token", r1)
+    replay = await client.post("/auth/refresh")
+    assert replay.status_code == 401
+    assert replay.json()["error"] == ErrorMessages.INVALID_TOKEN
+
+    # The rotated token works for a subsequent refresh.
+    client.cookies.set("refresh_token", r2)
+    second = await client.post("/auth/refresh")
+    assert second.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_verify_email_flow(client: AsyncClient):
     from sqlalchemy import select
 
@@ -116,7 +227,7 @@ async def test_verify_email_flow(client: AsyncClient):
         "/auth/register",
         json={
             "email": email,
-            "password": "password123",
+            "password": "Password123!",
             "first_name": "Test4",
             "last_name": "User4",
         },
@@ -145,7 +256,7 @@ async def test_verify_email_flow(client: AsyncClient):
 
     # Login should now succeed
     login_response = await client.post(
-        "/auth/login", data={"username": email, "password": "password123"}
+        "/auth/login", data={"username": email, "password": "Password123!"}
     )
     assert login_response.status_code == 200
     data = login_response.json()
@@ -158,8 +269,8 @@ async def test_forgot_and_reset_password_flow(client: AsyncClient):
     from app.core.security import create_password_reset_token
 
     email = "test5@test.com"
-    old_password = "password123"
-    new_password = "newPassword456"
+    old_password = "Password123!"
+    new_password = "NewPassword456!"
 
     # Register
     await client.post(
@@ -213,7 +324,7 @@ async def test_token_reuse_protection(client: AsyncClient):
     )
 
     email = "test_reuse@test.com"
-    password = "password123"
+    password = "Password123!"
 
     # 1. Register
     await client.post(
@@ -240,14 +351,14 @@ async def test_token_reuse_protection(client: AsyncClient):
     reset_token = create_password_reset_token(email)
     response = await client.post(
         "/auth/reset-password",
-        json={"token": reset_token, "new_password": "newPassword123"},
+        json={"token": reset_token, "new_password": "NewPassword123!"},
     )
     assert response.status_code == 200
 
     # 5. Reset Password Again with SAME token (Should Fail)
     response = await client.post(
         "/auth/reset-password",
-        json={"token": reset_token, "new_password": "anotherPassword123"},
+        json={"token": reset_token, "new_password": "AnotherPassword123!"},
     )
     assert response.status_code == 400
     assert response.json()["error"] == ErrorMessages.INVALID_TOKEN
@@ -261,8 +372,8 @@ async def test_change_password(client: AsyncClient):
     from app.tests.conftest import TestingSessionLocal
 
     email = "test_change@test.com"
-    old_password = "password123"
-    new_password = "newPassword456"
+    old_password = "Password123!"
+    new_password = "NewPassword456!"
 
     # 1. Register
     await client.post(
@@ -287,12 +398,15 @@ async def test_change_password(client: AsyncClient):
         "/auth/login", data={"username": email, "password": old_password}
     )
     assert login_response.status_code == 200
-    assert login_response.cookies.get("access_token") is not None
+    old_access_token = login_response.cookies.get("access_token")
+    old_refresh_token = login_response.cookies.get("refresh_token")
+    assert old_access_token is not None
+    assert old_refresh_token is not None
 
     # 4. Test Change Password - Failure (Wrong current password)
     fail_response = await client.patch(
         "/auth/change-password",
-        json={"current_password": "wrongpassword", "new_password": "newPassword456"},
+        json={"current_password": "wrongpassword", "new_password": "NewPassword456!"},
     )
     assert fail_response.status_code == 400
     assert fail_response.json()["error"] == ErrorMessages.INVALID_CURRENT_PASSWORD
@@ -305,6 +419,19 @@ async def test_change_password(client: AsyncClient):
     assert success_response.status_code == 200
     assert success_response.json()["success"] is True
     assert success_response.json()["message"] == SuccessMessages.PASSWORD_CHANGE_SUCCESS
+
+    # 5b. The session held before the change is revoked immediately: the old
+    # access token is rejected on a protected route and the old refresh token
+    # can no longer mint new access tokens.
+    client.cookies.set("access_token", old_access_token)
+    me_response = await client.get("/users/me")
+    assert me_response.status_code == 401
+
+    client.cookies.set("refresh_token", old_refresh_token)
+    refresh_response = await client.post("/auth/refresh")
+    assert refresh_response.status_code == 401
+
+    client.cookies.clear()
 
     # 6. Verify Login works with NEW password
     new_login_response = await client.post(
@@ -330,7 +457,7 @@ async def test_suspended_user_login_returns_account_suspended(client: AsyncClien
     from app.utils import utc_now
 
     email = "suspended@test.com"
-    password = "password123"
+    password = "Password123!"
     await client.post(
         "/auth/register",
         json={"email": email, "password": password, "first_name": "Sus"},

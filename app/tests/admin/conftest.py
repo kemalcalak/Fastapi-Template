@@ -20,7 +20,7 @@ from app.tests.conftest import TestingSessionLocal
 async def register_and_verify(
     client: AsyncClient,
     email: str,
-    password: str = "password123",
+    password: str = "Password123!",
 ) -> None:
     """Register a user and mark them verified so they can log in."""
     await client.post(
@@ -79,7 +79,9 @@ async def grant_all_permissions(email: str) -> None:
     await grant_permissions(email, list(Permission))
 
 
-async def login(client: AsyncClient, email: str, password: str = "password123") -> None:
+async def login(
+    client: AsyncClient, email: str, password: str = "Password123!"
+) -> None:
     """Log in and let httpx store the returned auth cookies on the client."""
     response = await client.post(
         "/auth/login",

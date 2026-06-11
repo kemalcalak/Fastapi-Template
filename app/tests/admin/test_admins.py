@@ -48,7 +48,7 @@ async def test_create_admin_account_with_permissions(superadmin_client: AsyncCli
             "email": "newadmin@test.com",
             "first_name": "New",
             "last_name": "Admin",
-            "password": "password123",
+            "password": "Password123!",
             "permissions": [Permission.USERS_READ.value, Permission.USERS_WRITE.value],
         },
     )
@@ -71,7 +71,7 @@ async def test_create_admin_duplicate_email_conflicts(superadmin_client: AsyncCl
 
     response = await superadmin_client.post(
         "/admin/admins",
-        json={"email": "taken@test.com", "password": "password123", "permissions": []},
+        json={"email": "taken@test.com", "password": "Password123!", "permissions": []},
     )
     assert response.status_code == 409
     assert response.json()["error"] == ErrorMessages.EMAIL_ALREADY_EXISTS

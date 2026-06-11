@@ -29,11 +29,18 @@ class Settings(BaseSettings):
     )
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
-    # 8 days — long enough to avoid surprise logouts, short enough to limit
-    # blast radius of a stolen token when combined with refresh rotation.
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
+    # 60 minutes — short-lived access token limits the blast radius of a
+    # stolen token. Clients transparently renew via the refresh-token flow.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     EMAIL_RESET_TOKEN_EXPIRE_HOURS: int = 48
+
+    # Account lockout: after MAX failed logins within the WINDOW, the account is
+    # locked for LOCKOUT seconds. Closes distributed brute-force that the
+    # per-IP rate limit cannot (attempts keyed by email, not source IP).
+    LOGIN_MAX_FAILED_ATTEMPTS: int = 5
+    LOGIN_FAILED_ATTEMPT_WINDOW_SECONDS: int = 15 * 60
+    LOGIN_LOCKOUT_SECONDS: int = 15 * 60
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
     DEFAULT_LANGUAGE: Literal["en", "tr"] = "en"
@@ -49,6 +56,33 @@ class Settings(BaseSettings):
         if self.FRONTEND_HOST:
             origins.append(str(self.FRONTEND_HOST).rstrip("/"))
         return origins
+
+    # Host header allowlist enforced by TrustedHostMiddleware. Comma-separated
+    # in the environment (e.g. ``api.example.com,example.com``).
+    ALLOWED_HOSTS: Annotated[list[str] | str, BeforeValidator(parse_cors)] = []
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def trusted_hosts(self) -> list[str]:
+        """Hosts accepted by ``TrustedHostMiddleware``.
+
+        Outside production we return ``["*"]`` so local dev and the test client
+        (which sends ``Host: testserver``) are never blocked. Production
+        enforces the explicit ``ALLOWED_HOSTS`` list plus the frontend host,
+        falling back to ``["*"]`` only if nothing was configured so a missing
+        value can never brick the deployment.
+        """
+        if self.ENVIRONMENT != "production":
+            return ["*"]
+
+        from urllib.parse import urlparse
+
+        hosts = [h.strip() for h in self.ALLOWED_HOSTS if h.strip()]
+        if self.FRONTEND_HOST:
+            hostname = urlparse(str(self.FRONTEND_HOST)).hostname
+            if hostname:
+                hosts.append(hostname)
+        return hosts or ["*"]
 
     PROJECT_NAME: str
     SENTRY_DSN: str | None = None
@@ -120,10 +154,12 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER_PASSWORD: str
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
-        if value == "changethis":
+        is_blank = not (value or "").strip()
+        if value == "changethis" or is_blank:
+            reason = "empty" if is_blank else 'the insecure default "changethis"'
             message = (
-                f'The value of {var_name} is "changethis", '
-                "for security, please change it, at least for deployments."
+                f"The value of {var_name} is {reason}; "
+                "for security, please set it, at least for deployments."
             )
             if self.ENVIRONMENT == "local":
                 warnings.warn(message, stacklevel=1)

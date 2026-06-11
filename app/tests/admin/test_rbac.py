@@ -167,14 +167,14 @@ async def test_is_last_active_superadmin_repository():
     async with TestingSessionLocal() as session:
         only_super = User(
             email="solo-super@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             role=SystemRole.SUPERADMIN.value,
             is_active=True,
             is_verified=True,
         )
         other_super = User(
             email="second-super@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             role=SystemRole.SUPERADMIN.value,
             is_active=True,
             is_verified=True,

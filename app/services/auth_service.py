@@ -20,29 +20,59 @@ from app.core.security import (
     verify_refresh_token,
 )
 from app.models.user import User
+from app.repositories.login_attempts import (
+    clear_login_attempts,
+    is_login_locked,
+    register_failed_login,
+)
 from app.repositories.token_blacklist import (
     add_token_to_blacklist,
     is_token_blacklisted,
 )
 from app.repositories.user import get_user_by_email, get_user_by_id, update_user
 from app.schemas.msg import Message
-from app.schemas.token import AuthTokens, Token
-from app.schemas.user import Language, UpdatePassword, UserCreate, UserPublic
+from app.schemas.token import AuthTokens, RefreshedTokens
+from app.schemas.user import (
+    Language,
+    SystemRole,
+    UpdatePassword,
+    UserCreate,
+    UserPublic,
+    UserRegister,
+)
 from app.schemas.user_activity import ActivityStatus, ActivityType, ResourceType
 from app.services.user_service import create_user_service
 from app.use_cases.log_activity import log_activity
 from app.utils.email_templates import (
+    generate_account_locked_email,
     generate_email_verification_email,
     generate_password_reset_email,
 )
 
 
 async def register_service(
-    request: Request, session: AsyncSession, user_create: UserCreate
+    request: Request, session: AsyncSession, user_register: UserRegister
 ) -> UserPublic:
-    """Register a user, audit the event, and send the verification email."""
+    """Register a user, audit the event, and send the verification email.
+
+    Builds the user from a restricted ``UserRegister`` payload and forces the
+    privileged fields (``role``, ``is_active``, ``is_verified``) to safe values
+    so a self-service registrant can never escalate to admin/superadmin or
+    self-verify. Privileged user creation goes through the admin flow instead.
+    """
+    safe_user = UserCreate(
+        email=user_register.email,
+        password=user_register.password,
+        first_name=user_register.first_name,
+        last_name=user_register.last_name,
+        title=user_register.title,
+        lang=user_register.lang,
+        role=SystemRole.USER,
+        is_active=True,
+        is_verified=False,
+    )
     user = await create_user_service(
-        request=request, session=session, user_create=user_create, current_user=None
+        request=request, session=session, user_create=safe_user, current_user=None
     )
     await log_activity(
         session=session,
@@ -62,7 +92,7 @@ async def register_service(
     email_data = generate_email_verification_email(
         verify_link=verify_url,
         project_name=settings.PROJECT_NAME,
-        lang=user_create.lang,
+        lang=user_register.lang,
     )
 
     await send_email(
@@ -83,6 +113,24 @@ async def register_service(
 _DUMMY_PASSWORD_HASH = get_password_hash("unused-timing-safe-placeholder")
 
 
+async def _notify_account_locked(user: User) -> None:
+    """Email the user that their account was just locked (best-effort)."""
+    lock_minutes = max(1, settings.LOGIN_LOCKOUT_SECONDS // 60)
+    email_data = generate_account_locked_email(
+        project_name=settings.PROJECT_NAME,
+        lock_minutes=lock_minutes,
+        lang=settings.DEFAULT_LANGUAGE,
+    )
+    await send_email(
+        to=user.email,
+        subject=email_data["subject"],
+        body=email_data["html"],
+        plain_text=email_data["plain_text"],
+        user_id=str(user.id),
+        is_html=True,
+    )
+
+
 async def authenticate(
     request: Request | None, session: AsyncSession, email: str, password: str
 ) -> User:
@@ -91,6 +139,16 @@ async def authenticate(
     Returns the user object if successful, raises 401 otherwise.
     Combined check for security (timing attacks).
     """
+    # Account lockout guard: reject early (423) while a temporary lock is active
+    # so even a correct password cannot be used during the cooldown.
+    lock_ttl = await is_login_locked(email)
+    if lock_ttl > 0:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=ErrorMessages.ACCOUNT_LOCKED,
+            headers={"Retry-After": str(lock_ttl)},
+        )
+
     user = await get_user_by_email(session, email=email)
 
     # Always run verify_password so the response time does not leak whether
@@ -110,10 +168,37 @@ async def authenticate(
                 details={"reason": "invalid_password", "email": email},
                 request=request,
             )
+
+        # Count the failure; the threshold-crossing attempt locks the account.
+        locked_now = await register_failed_login(email)
+        if locked_now:
+            if user:
+                await _notify_account_locked(user)
+                if request:
+                    await log_activity(
+                        session=session,
+                        user_id=user.id,
+                        activity_type=ActivityType.LOGIN,
+                        resource_type=ResourceType.AUTH,
+                        status=ActivityStatus.FAILURE,
+                        status_code=status.HTTP_423_LOCKED,
+                        details={"reason": "account_locked", "email": email},
+                        request=request,
+                    )
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=ErrorMessages.ACCOUNT_LOCKED,
+                headers={"Retry-After": str(settings.LOGIN_LOCKOUT_SECONDS)},
+            )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ErrorMessages.INVALID_CREDENTIALS,
         )
+
+    # Correct password: reset the failed-attempt counter so a legitimate login
+    # never accumulates toward a lockout.
+    await clear_login_attempts(email)
 
     # Admin-suspended accounts are permanently locked out. This guard must run
     # before the grace-window fall-through below, otherwise a suspended user
@@ -178,10 +263,13 @@ async def login_service(
 
 async def refresh_token_service(
     request: Request | None, session: AsyncSession, refresh_token: str
-) -> Token:
+) -> RefreshedTokens:
     """
-    Validate refresh token and return a new access token.
-    Checks if token is blacklisted and the user is still active.
+    Validate the refresh token and rotate the session credentials.
+
+    On success the presented refresh token is revoked and a fresh access +
+    refresh pair is issued. Replaying the old (now-blacklisted) refresh token
+    is rejected by the blacklist guard below, so a leaked token is single-use.
     """
     user_id = verify_refresh_token(refresh_token)
     if not user_id:
@@ -255,22 +343,43 @@ async def refresh_token_service(
             detail=ErrorMessages.ACCOUNT_SUSPENDED,
         )
 
-    return Token(
-        access_token=create_access_token(user_id), message=SuccessMessages.LOGIN_SUCCESS
+    # Rotate: revoke the presented refresh token and mint a fresh pair so the
+    # old token can never be reused (replay is caught by the guard above).
+    await _revoke_token(refresh_token)
+
+    return RefreshedTokens(
+        access_token=create_access_token(user_id),
+        refresh_token=create_refresh_token(user_id),
+        message=SuccessMessages.LOGIN_SUCCESS,
     )
 
 
+async def _revoke_token(token: str | None) -> None:
+    """Blacklist a token if present and not already revoked.
+
+    The guard avoids redundant writes when the same token is revoked twice
+    (e.g. a double logout) without raising.
+    """
+    if token and not await is_token_blacklisted(token):
+        await add_token_to_blacklist(token)
+
+
 async def logout_service(
-    request: Request | None, session: AsyncSession, refresh_token: str | None
+    request: Request | None,
+    session: AsyncSession,
+    refresh_token: str | None,
+    access_token: str | None = None,
 ) -> None:
     """
-    Invalidates a refresh token by adding it to the blacklist.
+    Invalidate the session by blacklisting both the refresh and access tokens.
+
+    Revoking the access token too closes the window where a stolen access
+    token would otherwise stay valid until its own expiry after logout.
     """
+    await _revoke_token(access_token)
+
     if refresh_token:
-        # Check if it was already blacklisted to avoid unique constraint errors
-        is_blacklisted = await is_token_blacklisted(refresh_token)
-        if not is_blacklisted:
-            await add_token_to_blacklist(refresh_token)
+        await _revoke_token(refresh_token)
 
         # Log success if possible
         user_id = verify_refresh_token(refresh_token)
@@ -462,9 +571,15 @@ async def change_password_service(
     session: AsyncSession,
     current_user: User,
     update_password: UpdatePassword,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
 ) -> Message:
     """
     Change user password after verifying current password.
+
+    On success the current session's access and refresh tokens are revoked so
+    a password change forces re-authentication and immediately invalidates any
+    token that may have been stolen before the change.
     """
     if not await averify_password(
         update_password.current_password, current_user.hashed_password
@@ -486,6 +601,11 @@ async def change_password_service(
 
     hashed_password = await aget_password_hash(update_password.new_password)
     await update_user(session, current_user, {"hashed_password": hashed_password})
+
+    # Revoke the current session so the change forces a fresh login and any
+    # token captured before the change stops working immediately.
+    await _revoke_token(access_token)
+    await _revoke_token(refresh_token)
 
     await log_activity(
         session=session,

@@ -1,8 +1,11 @@
+import re
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Annotated
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -15,6 +18,31 @@ from pydantic import (
 from app.core.messages.error_message import ErrorMessages
 from app.schemas.admin_permission import Permission
 from app.schemas.file import FilePublic
+
+# Character classes a new password must contain, mirroring the frontend rule:
+# at least one uppercase, one lowercase, one digit, and one special character.
+_PASSWORD_CLASSES = (
+    re.compile(r"[A-Z]"),
+    re.compile(r"[a-z]"),
+    re.compile(r"[0-9]"),
+    re.compile(r'[!@#$%^&*(),.?":{}|<>]'),
+)
+
+
+def _validate_password_strength(value: str) -> str:
+    """Reject new passwords that miss any required character class."""
+    if not all(pattern.search(value) for pattern in _PASSWORD_CLASSES):
+        raise ValueError(ErrorMessages.WEAK_PASSWORD)
+    return value
+
+
+# Applied to *new* passwords only (not current-password confirmations). Length is
+# enforced by ``Field``; the validator adds the complexity requirement.
+StrongPassword = Annotated[
+    str,
+    Field(min_length=8, max_length=40),
+    AfterValidator(_validate_password_strength),
+]
 
 
 class SystemRole(StrEnum):
@@ -43,7 +71,7 @@ class UserBase(BaseModel):
 
 # Properties to receive via API on creation
 class UserCreate(UserBase):
-    password: str = Field(min_length=8, max_length=40)
+    password: StrongPassword
     role: SystemRole = SystemRole.USER
     lang: Language = Language.EN
 
@@ -57,16 +85,17 @@ class UserCreate(UserBase):
 
 class UserRegister(BaseModel):
     email: EmailStr = Field(max_length=255)
-    password: str = Field(min_length=8, max_length=40)
+    password: StrongPassword
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=100)
+    lang: Language = Language.EN
 
 
 # Properties to receive via API on update, all are optional
 class UserUpdate(UserBase):
     email: EmailStr | None = Field(default=None, max_length=255)  # type: ignore
-    password: str | None = Field(default=None, min_length=8, max_length=40)
+    password: StrongPassword | None = None
     role: SystemRole | None = None
 
     @field_validator("role")
@@ -87,7 +116,7 @@ class UserUpdateMe(BaseModel):
 
 class UpdatePassword(BaseModel):
     current_password: str = Field(min_length=8, max_length=40)
-    new_password: str = Field(min_length=8, max_length=40)
+    new_password: StrongPassword
 
 
 class DeleteAccount(BaseModel):
@@ -141,7 +170,7 @@ class UsersPublic(BaseModel):
 
 class NewPassword(BaseModel):
     token: str
-    new_password: str = Field(min_length=8, max_length=40)
+    new_password: StrongPassword
     lang: Language = Language.EN
 
 

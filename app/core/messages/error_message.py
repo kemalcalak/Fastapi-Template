@@ -14,6 +14,7 @@ class ErrorMessages:
     EMAIL_ALREADY_EXISTS = "error.user.email_exists"
     INVALID_CREDENTIALS = "error.user.invalid_credentials"
     INVALID_PASSWORD = "error.user.invalid_password"
+    WEAK_PASSWORD = "error.user.password_weak"
     USER_INACTIVE = "error.user.user_inactive"
     EMAIL_NOT_VERIFIED = "error.user.email_not_verified"
     INVALID_VERIFICATION_TOKEN = "error.user.invalid_verification_token"
@@ -31,6 +32,9 @@ class ErrorMessages:
     ACCOUNT_SUSPENDED = "error.account.suspended"
     ACCOUNT_ALREADY_SUSPENDED = "error.account.already_suspended"
     ACCOUNT_NOT_SUSPENDED = "error.account.not_suspended"
+
+    # Account lockout (automatic, temporary — too many failed logins)
+    ACCOUNT_LOCKED = "error.account.locked"
 
     # Admin
     ADMIN_CANNOT_MODIFY_SELF = "error.admin.cannot_modify_self"

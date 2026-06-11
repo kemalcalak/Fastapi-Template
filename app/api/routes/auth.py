@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentActiveUser, SessionDep
+from app.api.deps import CurrentActiveUser, SessionDep, reusable_oauth2
 from app.core.config import settings
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
@@ -18,7 +18,7 @@ from app.schemas.user import (
     ForgotPassword,
     NewPassword,
     UpdatePassword,
-    UserCreate,
+    UserRegister,
     VerifyEmail,
 )
 from app.schemas.user_activity import ActivityType, ResourceType
@@ -36,10 +36,11 @@ from app.services.auth_service import (
 
 router = APIRouter()
 
-# The refresh cookie is limited to the refresh endpoint only so it is never
-# sent on unrelated requests. This path must match for both set_cookie and
-# delete_cookie calls or the cookie cannot be cleared.
-_REFRESH_COOKIE_PATH = f"{settings.API_V1_STR}/auth/refresh"
+# The refresh cookie is scoped to the auth router so it is sent on the auth
+# endpoints that must revoke it — /refresh (rotation), /logout, and
+# /change-password — but not on the rest of the API. This path must match for
+# both set_cookie and delete_cookie calls or the cookie cannot be cleared.
+_REFRESH_COOKIE_PATH = f"{settings.API_V1_STR}/auth"
 _COOKIE_SECURE = settings.ENVIRONMENT != "local"
 
 
@@ -128,6 +129,7 @@ async def refresh_token(
         request=request, session=session, refresh_token=refresh_token_cookie
     )
     _set_access_cookie(response, result.access_token)
+    _set_refresh_cookie(response, result.refresh_token)
     return CookieRefreshResponse(message=result.message)
 
 
@@ -138,11 +140,15 @@ async def refresh_token(
     endpoint="/logout",
 )
 async def logout(request: Request, response: Response, session: SessionDep) -> Message:
-    """Clear refresh token cookie and invalidate token in the blacklist."""
+    """Clear the auth cookies and revoke both tokens in the blacklist."""
     refresh_token_cookie = request.cookies.get("refresh_token")
-    if refresh_token_cookie:
+    access_token_cookie = request.cookies.get("access_token")
+    if refresh_token_cookie or access_token_cookie:
         await logout_service(
-            request=request, session=session, refresh_token=refresh_token_cookie
+            request=request,
+            session=session,
+            refresh_token=refresh_token_cookie,
+            access_token=access_token_cookie,
         )
     _clear_auth_cookies(response)
     return Message(success=True, message=SuccessMessages.LOGOUT_SUCCESS)
@@ -156,10 +162,10 @@ async def logout(request: Request, response: Response, session: SessionDep) -> M
     endpoint="/register",
 )
 async def register_user(
-    request: Request, session: SessionDep, user_in: UserCreate
+    request: Request, session: SessionDep, user_in: UserRegister
 ) -> Message:
     """Register a new user."""
-    await register_service(request=request, session=session, user_create=user_in)
+    await register_service(request=request, session=session, user_register=user_in)
     return Message(success=True, message=SuccessMessages.REGISTER_SUCCESS)
 
 
@@ -243,14 +249,23 @@ async def resend_verification(
 )
 async def change_password(
     request: Request,
+    response: Response,
     session: SessionDep,
     current_user: CurrentActiveUser,
     body: UpdatePassword,
+    bearer_token: Annotated[str | None, Depends(reusable_oauth2)] = None,
 ) -> Message:
-    """Change user password while logged in."""
-    return await change_password_service(
+    """Change user password while logged in, then end the current session."""
+    # Resolve the access token the same way ``get_current_user`` does so the
+    # session is revoked for Bearer clients too, not only cookie-based ones.
+    access_token = request.cookies.get("access_token") or bearer_token
+    result = await change_password_service(
         request=request,
         session=session,
         current_user=current_user,
         update_password=body,
+        access_token=access_token,
+        refresh_token=request.cookies.get("refresh_token"),
     )
+    _clear_auth_cookies(response)
+    return result

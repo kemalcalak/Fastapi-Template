@@ -29,7 +29,7 @@ async def test_stats_returns_expected_counts(admin_client: AsyncClient):
         "/auth/register",
         json={
             "email": "unverified@test.com",
-            "password": "password123",
+            "password": "Password123!",
             "first_name": "U",
             "last_name": "V",
             "title": "T",

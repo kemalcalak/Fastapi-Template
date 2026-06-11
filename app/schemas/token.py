@@ -16,6 +16,12 @@ class AuthTokens(Token):
     message: str | None = None
 
 
+class RefreshedTokens(Token):
+    """Rotated credentials returned by the refresh flow: new access + refresh."""
+
+    refresh_token: str
+
+
 class CookieLoginResponse(BaseModel):
     """Login response without access_token in body (token is in HttpOnly cookie)."""
 

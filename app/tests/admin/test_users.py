@@ -288,21 +288,21 @@ async def test_is_last_active_admin_repository():
     async with TestingSessionLocal() as session:
         only_admin = User(
             email="solo-admin@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             role=SystemRole.ADMIN.value,
             is_active=True,
             is_verified=True,
         )
         inactive_admin = User(
             email="inactive-admin@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             role=SystemRole.ADMIN.value,
             is_active=False,
             is_verified=True,
         )
         regular = User(
             email="plain@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             role=SystemRole.USER.value,
             is_active=True,
             is_verified=True,
@@ -315,7 +315,7 @@ async def test_is_last_active_admin_repository():
 
         second_admin = User(
             email="second-admin@test.com",
-            hashed_password=get_password_hash("password123"),
+            hashed_password=get_password_hash("Password123!"),
             role=SystemRole.ADMIN.value,
             is_active=True,
             is_verified=True,
