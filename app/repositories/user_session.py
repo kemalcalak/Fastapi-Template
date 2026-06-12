@@ -1,10 +1,12 @@
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.redis import get_redis
 from app.models.user_session import UserSession
 from app.utils import utc_now
 
@@ -145,3 +147,37 @@ async def purge_stale_sessions(
     result = await session.execute(statement)
     await session.commit()
     return result.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Redis revoked-sid flags
+#
+# The DB row is the source of truth for the *refresh* flow (which loads it
+# anyway), but checking the DB on every API request would be too costly. These
+# flags let ``get_current_user`` kill the access tokens of a revoked session
+# with a single Redis lookup. TTL = access-token lifetime: past that, every
+# access token carrying the sid has expired on its own.
+# ---------------------------------------------------------------------------
+
+_REVOKED_SID_PREFIX = "revoked:session:"
+
+
+def _revoked_key(session_id: str | uuid.UUID) -> str:
+    """Build the Redis key flagging a revoked session id."""
+    return f"{_REVOKED_SID_PREFIX}{session_id}"
+
+
+async def flag_sessions_revoked(session_ids: Iterable[str | uuid.UUID]) -> None:
+    """Flag sids in Redis so their live access tokens die immediately."""
+    redis = get_redis()
+    ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    async with redis.pipeline(transaction=False) as pipe:
+        for session_id in session_ids:
+            pipe.set(_revoked_key(session_id), "1", ex=ttl)
+        await pipe.execute()
+
+
+async def is_session_revoked(session_id: str | uuid.UUID) -> bool:
+    """Return True if the session id has been flagged as revoked."""
+    redis = get_redis()
+    return bool(await redis.exists(_revoked_key(session_id)))
