@@ -42,6 +42,7 @@ This template integrates the best-in-class Python ecosystem tools to provide a s
 - **Standardized API Responses:** Global exception handlers standardizing success/error schemas, utilizing a centralized `messages` module (`app/core/messages/`) to prevent hardcoded responses.
 - **Role-Based Access Control (RBAC):** Three roles — `user` / `admin` / `superadmin`. Superadmins bypass every check and **create/delete admins** and assign their permissions; plain admins are gated per **`resource:action`** permission (`users:read`, `users:write`, `support:update`, …) stored in `admin_permission` and enforced by a single `require_permission(...)` dependency. The **superadmin tier** (promote an admin to superadmin, demote a superadmin, transfer root via email OTP) is reserved for the **root superadmin** (`is_root_superadmin`); the last active superadmin is always protected. See [Admin & RBAC](#-admin--rbac-roles--permissions).
 - **Support / Ticketing System:** Full ticket lifecycle — open, reply with image attachments, status/priority, admin assignment — fanned out over a **Redis-backed WebSocket bus** so the ticket thread, the admin queue, and per-user feeds update live across workers. See [Support System & Realtime](#-support-ticketing-system--realtime).
+- **Notification System:** Persistent in-app notifications (`notification` table) layered on the same realtime bus — domain events (a support reply, a ticket status change, an RBAC grant change) call a single `notify()` use case that stores the row **and** pushes it to the recipient's `notifications:{id}` feed, so offline users still find it in their inbox on the next fetch. Notification copy is stored as a stable machine `type` + `data` payload (no human text), so the frontend renders it in any locale. REST covers paginated listing (`unread_only` filter), the unread badge count, and mark-(all-)read. See [Notification System](#-notification-system).
 - **First Superadmin Seed:** On startup a **root superadmin** (`is_root_superadmin`) is created from `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` if none exists (a matching existing account is promoted instead; older deployments get their oldest superadmin flagged as root) — guaranteeing a root account.
 - **Tooling:** [uv](https://docs.astral.sh/uv/) for blazing-fast package management, and [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
 - **Testing:** Comprehensive async testing setup with `pytest` and `pytest-asyncio`, in-memory SQLite via `aiosqlite`, `fakeredis`, and autouse SMTP/MX patches — tests never hit Postgres or the network.
@@ -379,7 +380,25 @@ A complete support desk built on a generic realtime bus that any feature can reu
 | `WS /admin/support/ws` · `/support/ws` | admin / owner | Multiplexed ticket + queue feed. |
 | `WS /users/me/events` | any user | Per-user account feed (e.g. live `permissions_updated`). |
 
-**Realtime bus (`app/core/realtime.py`).** A thin in-process `ConnectionManager` sits behind a Redis pub/sub bridge: services `publish()` to a topic — `ticket:{id}`, `admin`, `user:{id}`, or `account:{id}` — and a per-worker listener fans the event to the matching local sockets, so an event raised in one worker reaches clients connected to any worker. Publishing is best-effort (`publish_safe`), so a realtime hiccup never breaks the originating request.
+**Realtime bus (`app/core/realtime.py`).** A thin in-process `ConnectionManager` sits behind a Redis pub/sub bridge: services `publish()` to a topic — `ticket:{id}`, `admin`, `user:{id}`, `account:{id}`, or `notifications:{id}` — and a per-worker listener fans the event to the matching local sockets, so an event raised in one worker reaches clients connected to any worker. Publishing is best-effort (`publish_safe`), so a realtime hiccup never breaks the originating request.
+
+---
+
+## 🔔 Notification System
+
+Persistent, per-user in-app notifications built on the same realtime bus as support — so an event raised in any worker reaches the recipient live, and is still waiting in their inbox if they were offline.
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /notifications` | self | List own notifications, newest first (`skip` / `limit`, `unread_only` filter). |
+| `GET /notifications/unread-count` | self | Unread count for the bell badge. |
+| `POST /notifications/{id}/read` | owner | Mark one notification read (idempotent; IDOR-guarded). |
+| `POST /notifications/read-all` | self | Mark every unread notification read in one set-based `UPDATE`. |
+| `WS /notifications/ws` | self | Live feed — new notifications arrive as `notification_created` frames. |
+
+**Emitting (`app/use_cases/notify.py`).** Any domain service calls one cross-cutting `notify(session, user_id, type, data)` — it persists the row and best-effort `publish_safe`s it to the recipient's `notifications:{id}` topic (mirroring `log_activity`, so a service never has to call another service). It is wired into admin support replies (`support_ticket_replied`), ticket status changes (`support_ticket_status_changed`), and RBAC grant changes (`admin_permissions_changed`); self-actions are skipped so nobody is notified about their own action.
+
+**Locale-free storage.** A notification stores a stable machine `type` plus a `data` JSON payload (ids, subject, status) — never human text — so the frontend produces the message in the active language. Adding a type means adding an enum value plus a locale entry; the table schema never changes.
 
 ---
 
@@ -394,11 +413,11 @@ A complete support desk built on a generic realtime bus that any feature can reu
 │   │       └── admin/    # Admin surface — RBAC-gated via require_permission;
 │   │                     #   admins/ (admin management) is superadmin-only
 │   ├── core/             # config, db, security, redis, rate_limit, email, storage, realtime, bootstrap, messages/
-│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, File, SupportTicket, AdminPermission, …)
+│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, File, SupportTicket, Notification, AdminPermission, …)
 │   ├── repositories/     # Data Layer: async DB queries (no business rules)
 │   ├── schemas/          # Pydantic v2 DTOs (Create / Update / Response per domain)
 │   ├── services/         # Business Logic Layer: pure async functions, take AsyncSession
-│   ├── use_cases/        # Cross-domain orchestration (e.g. activity logging)
+│   ├── use_cases/        # Cross-domain orchestration (e.g. activity logging, notifications)
 │   ├── worker/           # arq worker — settings + cron jobs (e.g. account deletion)
 │   ├── utils/            # Helper functions (datetime, email templates)
 │   ├── tests/            # pytest suite (in-memory SQLite, fakeredis, mocked SMTP)
@@ -424,6 +443,7 @@ A complete support desk built on a generic realtime bus that any feature can reu
 - [ ] Create an admin account and assign `resource:action` permissions from the admin endpoints (superadmin-only)
 - [ ] Log in as that permission-limited admin and verify each route is gated by `require_permission(...)`
 - [ ] Try the support flow: open a ticket, then reply/assign it as an admin and watch the WebSocket bus push updates live
+- [ ] Reply to that ticket as an admin and confirm the owner receives a notification at `GET /notifications` (and live over the `notifications:{id}` feed)
 - [ ] Set Cloudinary keys (`CLOUDINARY_*`) if you need `POST /upload` for files/avatars
 - [ ] Run the test suite with `uv run pytest` to confirm everything is green
 - [ ] Add a new message constant to `app/core/messages/` before introducing any user-facing string

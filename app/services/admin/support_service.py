@@ -23,6 +23,7 @@ from app.repositories.support import (
 )
 from app.repositories.user import get_user_by_id
 from app.schemas.file import FileCategory
+from app.schemas.notification import NotificationType
 from app.schemas.support import (
     AdminTicketDetail,
     AdminTicketListItem,
@@ -41,6 +42,7 @@ from app.schemas.support import (
 from app.schemas.user import SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.use_cases.log_activity import log_activity
+from app.use_cases.notify import notify
 from app.use_cases.support_attachments import resolve_attachment_files
 from app.utils import utc_now
 
@@ -249,6 +251,16 @@ async def reply_ticket_admin_service(
             ),
         )
 
+    # Inbox notification for the ticket owner — skipped when an admin replies
+    # to their own ticket, so nobody is notified about their own action.
+    if ticket.user_id != admin.id:
+        await notify(
+            session,
+            user_id=ticket.user_id,
+            notification_type=NotificationType.SUPPORT_TICKET_REPLIED,
+            data={"ticket_id": str(ticket.id), "subject": ticket.subject},
+        )
+
     return SupportMessageResponse(
         data=message_read,
         message=SuccessMessages.ADMIN_TICKET_REPLIED,
@@ -265,6 +277,7 @@ async def update_ticket_admin_service(
 ) -> AdminTicketResponse:
     """Change a ticket's status, priority, or assignment."""
     ticket = await _load_ticket_or_404(session, ticket_id)
+    old_status = ticket.status
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -298,6 +311,24 @@ async def update_ticket_admin_service(
     )
 
     await _publish_ticket_update(session, ticket)
+
+    # Inbox notification for the owner when the status actually changed —
+    # priority/assignment shuffles are admin-internal and stay silent.
+    if (
+        payload.status is not None
+        and payload.status.value != old_status
+        and ticket.user_id != admin.id
+    ):
+        await notify(
+            session,
+            user_id=ticket.user_id,
+            notification_type=NotificationType.SUPPORT_TICKET_STATUS_CHANGED,
+            data={
+                "ticket_id": str(ticket.id),
+                "subject": ticket.subject,
+                "status": payload.status.value,
+            },
+        )
 
     detail = await _serialize_admin_detail(session, ticket_id)
     return AdminTicketResponse(
