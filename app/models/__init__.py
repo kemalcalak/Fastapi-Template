@@ -8,6 +8,7 @@ from app.models.support import (
 )
 from app.models.user import User
 from app.models.user_activity import UserActivity
+from app.models.user_session import UserSession
 
 __all__ = [
     "AdminPermission",
@@ -18,4 +19,5 @@ __all__ = [
     "SupportTicket",
     "User",
     "UserActivity",
+    "UserSession",
 ]
