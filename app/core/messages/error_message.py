@@ -65,6 +65,9 @@ class ErrorMessages:
     NOTIFICATION_NOT_FOUND = "error.notification.not_found"
     NOTIFICATION_ACCESS_DENIED = "error.notification.access_denied"
 
+    # Sessions
+    SESSION_NOT_FOUND = "error.session.not_found"
+
     # Support / tickets
     TICKET_NOT_FOUND = "error.support.ticket_not_found"
     TICKET_ACCESS_DENIED = "error.support.ticket_access_denied"

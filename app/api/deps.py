@@ -161,6 +161,29 @@ async def get_ws_user(websocket: WebSocket, db: AsyncSession) -> User | None:
     return user
 
 
+async def get_current_session_id(
+    request: Request,
+    bearer_token: Annotated[str | None, Depends(reusable_oauth2)] = None,
+) -> uuid.UUID | None:
+    """Resolve the ``sid`` claim of the caller's access token.
+
+    Pure claim extraction — authentication itself is the job of
+    ``get_current_user``, which the route must also depend on. Returns ``None``
+    for legacy tokens minted before the session feature.
+    """
+    token = request.cookies.get("access_token") or bearer_token
+    if not token:
+        return None
+    claims = decode_token_payload(token)
+    sid = claims.get("sid") if claims else None
+    if not sid:
+        return None
+    try:
+        return uuid.UUID(sid)
+    except ValueError:
+        return None
+
+
 # Type aliases for dependency injection
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
 # reusable_oauth2 uses auto_error=False, so the dependency may resolve to None.
@@ -169,6 +192,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
 CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]
 CurrentSuperAdmin = Annotated[User, Depends(get_current_superadmin)]
+CurrentSessionId = Annotated[uuid.UUID | None, Depends(get_current_session_id)]
 
 
 async def user_has_permission(

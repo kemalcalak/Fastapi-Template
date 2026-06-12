@@ -17,6 +17,10 @@ class SuccessMessages:
     ACCOUNT_DEACTIVATED = "success.account.deactivated"
     ACCOUNT_REACTIVATED = "success.account.reactivated"
 
+    # Sessions
+    SESSION_REVOKED = "success.session.revoked"
+    OTHER_SESSIONS_REVOKED = "success.session.others_revoked"
+
     # Admin
     ADMIN_USER_UPDATED = "success.admin.user_updated"
     ADMIN_USER_SUSPENDED = "success.admin.user_suspended"
