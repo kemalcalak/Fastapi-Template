@@ -15,16 +15,28 @@ from app.utils import utc_now
 # ---------------------------------------------------------------------------
 
 
-def _base_payload(subject: str, token_type: str, expire: datetime) -> dict:
-    """Build a standard JWT payload with UTC unix timestamps."""
+def _base_payload(
+    subject: str,
+    token_type: str,
+    expire: datetime,
+    session_id: str | uuid.UUID | None = None,
+) -> dict:
+    """Build a standard JWT payload with UTC unix timestamps.
+
+    ``session_id`` becomes the ``sid`` claim binding the token to a
+    ``UserSession`` row, so revoking the session invalidates the token.
+    """
     now = utc_now()
-    return {
+    payload = {
         "sub": subject,
         "type": token_type,
         "jti": str(uuid.uuid4()),
         "iat": now.timestamp(),
         "exp": expire.timestamp(),
     }
+    if session_id is not None:
+        payload["sid"] = str(session_id)
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +47,8 @@ def _base_payload(subject: str, token_type: str, expire: datetime) -> dict:
 def create_access_token(
     subject: str | uuid.UUID,
     expires_delta: timedelta | None = None,
+    *,
+    session_id: str | uuid.UUID | None = None,
 ) -> str:
     """
     Create a short-lived JWT access token.
@@ -42,6 +56,7 @@ def create_access_token(
     Args:
         subject:       User ID (str or UUID)
         expires_delta: Optional custom TTL
+        session_id:    UserSession id embedded as the ``sid`` claim
 
     Returns:
         Encoded JWT string
@@ -49,13 +64,15 @@ def create_access_token(
     expire = utc_now() + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    payload = _base_payload(str(subject), "access", expire)
+    payload = _base_payload(str(subject), "access", expire, session_id=session_id)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
 def create_refresh_token(
     subject: str | uuid.UUID,
     expires_delta: timedelta | None = None,
+    *,
+    session_id: str | uuid.UUID | None = None,
 ) -> str:
     """
     Create a long-lived JWT refresh token.
@@ -65,6 +82,7 @@ def create_refresh_token(
     Args:
         subject:       User ID (str or UUID)
         expires_delta: Optional custom TTL
+        session_id:    UserSession id embedded as the ``sid`` claim
 
     Returns:
         Encoded JWT string
@@ -72,8 +90,33 @@ def create_refresh_token(
     expire = utc_now() + (
         expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     )
-    payload = _base_payload(str(subject), "refresh", expire)
+    payload = _base_payload(str(subject), "refresh", expire, session_id=session_id)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def decode_token_payload(token: str, expected_type: str = "access") -> dict | None:
+    """
+    Decode and validate a JWT, returning its full claims.
+
+    Use this when the caller needs more than the subject — e.g. the ``sid``
+    session binding or the ``jti`` for rotation/replay checks.
+
+    Args:
+        token:         Raw JWT string
+        expected_type: ``"access"`` or ``"refresh"``
+
+    Returns:
+        Claims dict on success, ``None`` otherwise
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("type") != expected_type:
+        return None
+    if not payload.get("sub"):
+        return None
+    return payload
 
 
 def verify_token(token: str, expected_type: str = "access") -> str | None:
@@ -87,14 +130,8 @@ def verify_token(token: str, expected_type: str = "access") -> str | None:
     Returns:
         Subject (user ID) on success, ``None`` otherwise
     """
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-        if payload.get("type") != expected_type:
-            return None
-        subject: str | None = payload.get("sub")
-        return subject if subject else None
-    except jwt.PyJWTError:
-        return None
+    payload = decode_token_payload(token, expected_type)
+    return payload["sub"] if payload else None
 
 
 def verify_refresh_token(token: str) -> str | None:
