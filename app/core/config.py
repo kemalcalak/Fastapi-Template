@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     DELETION_JOB_CRON_HOUR: int = 3
     DELETION_JOB_CRON_MINUTE: int = 0
 
+    # Session housekeeping: revoked rows are kept this long for audit trails,
+    # then swept (expired rows go immediately) by the nightly purge job.
+    SESSION_REVOKED_RETENTION_DAYS: int = 30
+    SESSION_PURGE_CRON_HOUR: int = 4
+    SESSION_PURGE_CRON_MINUTE: int = 0
+
     # Database connection pool (tuned per API worker)
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
