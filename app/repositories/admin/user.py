@@ -66,14 +66,29 @@ async def list_users_admin(
     return users, total
 
 
-async def list_admins(session: AsyncSession) -> Sequence[User]:
-    """Return all admin and superadmin accounts, newest first."""
-    stmt = (
-        select(User)
-        .where(User.role.in_([SystemRole.ADMIN.value, SystemRole.SUPERADMIN.value]))
-        .order_by(User.created_at.desc())
+async def list_admins(
+    session: AsyncSession,
+    *,
+    skip: int = 0,
+    limit: int = 50,
+    role: SystemRole | None = None,
+) -> tuple[Sequence[User], int]:
+    """Return a paginated page of admin-tier accounts plus the total count."""
+    base_stmt = select(User).where(
+        User.role.in_([SystemRole.ADMIN.value, SystemRole.SUPERADMIN.value])
     )
-    return (await session.execute(stmt)).scalars().all()
+    if role is not None:
+        base_stmt = base_stmt.where(User.role == role.value)
+
+    count_stmt = base_stmt.with_only_columns(
+        func.count(), maintain_column_froms=True
+    ).order_by(None)
+    total = (await session.execute(count_stmt)).scalar_one()
+
+    rows_stmt = base_stmt.order_by(User.created_at.desc()).offset(skip).limit(limit)
+    admins = (await session.execute(rows_stmt)).scalars().all()
+
+    return admins, total
 
 
 async def superadmin_exists(session: AsyncSession) -> bool:

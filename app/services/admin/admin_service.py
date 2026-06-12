@@ -66,6 +66,7 @@ def _to_list_item(user: User, permissions: list[Permission]) -> AdminListItem:
         is_active=user.is_active,
         is_root_superadmin=user.is_root_superadmin,
         permissions=permissions,
+        created_at=user.created_at,
     )
 
 
@@ -104,9 +105,15 @@ def get_permission_catalog_service() -> PermissionCatalogResponse:
     return PermissionCatalogResponse(permissions=list(Permission))
 
 
-async def list_admins_service(session: AsyncSession) -> AdminListResponse:
-    """List every admin-tier account with the permissions it holds."""
-    admins = await list_admins(session)
+async def list_admins_service(
+    session: AsyncSession,
+    *,
+    skip: int = 0,
+    limit: int = 50,
+    role: SystemRole | None = None,
+) -> AdminListResponse:
+    """List a paginated page of admin-tier accounts with their permissions."""
+    admins, total = await list_admins(session, skip=skip, limit=limit, role=role)
     permissions_map = await get_permissions_for_users(
         session, [admin.id for admin in admins]
     )
@@ -116,7 +123,7 @@ async def list_admins_service(session: AsyncSession) -> AdminListResponse:
         )
         for admin in admins
     ]
-    return AdminListResponse(data=data, total=len(data))
+    return AdminListResponse(data=data, total=total, skip=skip, limit=limit)
 
 
 async def create_admin_service(
