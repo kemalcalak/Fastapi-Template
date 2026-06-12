@@ -11,13 +11,14 @@ class SessionRead(BaseModel):
     """One active login session as shown on the security screen.
 
     ``browser``/``os`` are parsed server-side from the stored User-Agent so
-    every client renders the same labels without shipping a UA parser.
+    every client renders the same labels without shipping a UA parser. The
+    stored IP address is deliberately NOT exposed — it stays in the DB for
+    audit purposes only.
     """
 
     id: uuid.UUID
     browser: str | None = None
     os: str | None = None
-    ip_address: str | None = None
     created_at: datetime
     last_used_at: datetime
     # True for the session the caller used to make this request.
@@ -33,7 +34,6 @@ class SessionRead(BaseModel):
             id=user_session.id,
             browser=parsed.browser,
             os=parsed.os,
-            ip_address=user_session.ip_address,
             created_at=user_session.created_at,
             last_used_at=user_session.last_used_at,
             is_current=user_session.id == current_session_id,

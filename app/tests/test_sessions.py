@@ -82,7 +82,8 @@ async def test_login_creates_session_with_device_metadata(client: AsyncClient):
     assert row["is_current"] is True
     assert row["browser"] == "Chrome"
     assert row["os"] == "Windows"
-    assert row["ip_address"] is not None
+    # The stored IP must never leave the backend.
+    assert "ip_address" not in row
 
 
 @pytest.mark.asyncio
