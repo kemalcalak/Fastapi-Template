@@ -41,10 +41,12 @@ class SessionRead(BaseModel):
 
 
 class SessionListResponse(BaseModel):
-    """The caller's active sessions, most recently used first."""
+    """Paginated listing of active sessions, most recently used first."""
 
     data: list[SessionRead]
     total: int
+    skip: int
+    limit: int
 
 
 class SessionsRevokedResponse(BaseModel):

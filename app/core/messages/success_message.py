@@ -20,6 +20,7 @@ class SuccessMessages:
     # Sessions
     SESSION_REVOKED = "success.session.revoked"
     OTHER_SESSIONS_REVOKED = "success.session.others_revoked"
+    ADMIN_SESSIONS_REVOKED = "success.session.admin_revoked"
 
     # Admin
     ADMIN_USER_UPDATED = "success.admin.user_updated"

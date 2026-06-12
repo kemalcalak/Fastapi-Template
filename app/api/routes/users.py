@@ -1,6 +1,7 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Request, Response, WebSocket
+from fastapi import APIRouter, Query, Request, Response, WebSocket
 
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import (
@@ -68,10 +69,16 @@ async def list_my_sessions(
     session: SessionDep,
     current_user: CurrentActiveUser,
     current_session_id: CurrentSessionId,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> SessionListResponse:
     """List the caller's active sessions, flagging the current device."""
     return await list_my_sessions_service(
-        session, user=current_user, current_session_id=current_session_id
+        session,
+        user=current_user,
+        current_session_id=current_session_id,
+        skip=skip,
+        limit=limit,
     )
 
 

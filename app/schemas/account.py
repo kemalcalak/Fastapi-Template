@@ -7,6 +7,10 @@ class AccountEventType(StrEnum):
     """Realtime event types pushed to a single user's account socket."""
 
     PERMISSIONS_UPDATED = "permissions_updated"
+    # One or more of the user's sessions were revoked (remote logout, admin
+    # kill, password change). Clients re-validate their own session and drop
+    # to the login screen if it was theirs.
+    SESSIONS_REVOKED = "sessions_revoked"
 
 
 class AccountEvent(BaseModel):

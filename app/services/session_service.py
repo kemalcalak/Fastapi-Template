@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
+from app.core.realtime import account_topic, publish_safe
 from app.models.user import User
 from app.repositories.user_session import (
     flag_sessions_revoked,
@@ -13,6 +14,7 @@ from app.repositories.user_session import (
     revoke_all_sessions,
     revoke_session,
 )
+from app.schemas.account import AccountEvent, AccountEventType
 from app.schemas.msg import Message
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.schemas.user_session import (
@@ -25,15 +27,22 @@ from app.utils import ensure_utc, utc_now
 
 
 async def list_my_sessions_service(
-    session: AsyncSession, *, user: User, current_session_id: uuid.UUID | None
+    session: AsyncSession,
+    *,
+    user: User,
+    current_session_id: uuid.UUID | None,
+    skip: int = 0,
+    limit: int = 50,
 ) -> SessionListResponse:
-    """Return the caller's live sessions with their own device flagged."""
-    rows = await list_active_sessions(session, user_id=user.id)
+    """Return a page of the caller's live sessions with their own device flagged."""
+    rows, total = await list_active_sessions(
+        session, user_id=user.id, skip=skip, limit=limit
+    )
     data = [
         SessionRead.from_model(row, current_session_id=current_session_id)
         for row in rows
     ]
-    return SessionListResponse(data=data, total=len(data))
+    return SessionListResponse(data=data, total=total, skip=skip, limit=limit)
 
 
 async def revoke_my_session_service(
@@ -63,6 +72,12 @@ async def revoke_my_session_service(
 
     await revoke_session(session, session_id=session_id)
     await flag_sessions_revoked([session_id])
+    # Live signal so an open tab on the kicked device drops to login at once
+    # instead of dying on its next API call.
+    await publish_safe(
+        account_topic(user.id),
+        AccountEvent(type=AccountEventType.SESSIONS_REVOKED),
+    )
 
     await log_activity(
         session=session,
@@ -89,6 +104,10 @@ async def revoke_my_other_sessions_service(
     )
     if revoked:
         await flag_sessions_revoked([row.id for row in revoked])
+        await publish_safe(
+            account_topic(user.id),
+            AccountEvent(type=AccountEventType.SESSIONS_REVOKED),
+        )
 
     await log_activity(
         session=session,

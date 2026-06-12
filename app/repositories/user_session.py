@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -29,24 +29,33 @@ async def get_session_by_id(
 
 
 async def list_active_sessions(
-    session: AsyncSession, *, user_id: uuid.UUID
-) -> Sequence[UserSession]:
-    """Return a user's live sessions, most recently used first.
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[Sequence[UserSession], int]:
+    """Return a page of a user's live sessions plus the total count.
 
     A session is live when it has not been revoked and its refresh token has
-    not expired yet. The per-user count is naturally bounded (one row per
-    device), so no pagination is needed.
+    not expired yet. Most recently used first.
     """
-    statement = (
-        select(UserSession)
-        .where(
-            UserSession.user_id == user_id,
-            UserSession.revoked_at.is_(None),
-            UserSession.expires_at > utc_now(),
-        )
-        .order_by(UserSession.last_used_at.desc())
+    base_stmt = select(UserSession).where(
+        UserSession.user_id == user_id,
+        UserSession.revoked_at.is_(None),
+        UserSession.expires_at > utc_now(),
     )
-    return (await session.execute(statement)).scalars().all()
+
+    count_stmt = base_stmt.with_only_columns(
+        func.count(), maintain_column_froms=True
+    ).order_by(None)
+    total = (await session.execute(count_stmt)).scalar_one()
+
+    list_stmt = (
+        base_stmt.order_by(UserSession.last_used_at.desc()).offset(skip).limit(limit)
+    )
+    rows = (await session.execute(list_stmt)).scalars().all()
+    return rows, total
 
 
 async def rotate_session_jti(

@@ -18,6 +18,11 @@ from app.schemas.admin_permission import Permission
 from app.schemas.msg import Message
 from app.schemas.user import Language, SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
+from app.schemas.user_session import SessionListResponse, SessionsRevokedResponse
+from app.services.admin.session_service import (
+    list_user_sessions_admin_service,
+    revoke_user_sessions_admin_service,
+)
 from app.services.admin.user_service import (
     change_password_admin_service,
     delete_user_admin_service,
@@ -37,6 +42,9 @@ AdminUsersSuspend = Annotated[
 AdminUsersDelete = Annotated[User, Depends(require_permission(Permission.USERS_DELETE))]
 AdminUsersPasswordReset = Annotated[
     User, Depends(require_permission(Permission.USERS_PASSWORD_RESET))
+]
+AdminUsersSessions = Annotated[
+    User, Depends(require_permission(Permission.USERS_SESSIONS))
 ]
 
 
@@ -175,6 +183,48 @@ async def delete_user(
     return await delete_user_admin_service(
         request=request,
         session=session,
+        current_user=current_user,
+        user_id=user_id,
+    )
+
+
+@router.get("/{user_id}/sessions", response_model=SessionListResponse)
+@audit_unexpected_failure(
+    activity_type=ActivityType.READ,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/users/{user_id}/sessions",
+)
+async def list_user_sessions(
+    _request: Request,
+    _admin: AdminUsersSessions,
+    session: SessionDep,
+    user_id: uuid.UUID,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> SessionListResponse:
+    """List a user's active sessions for the admin detail view."""
+    return await list_user_sessions_admin_service(
+        session, user_id=user_id, skip=skip, limit=limit
+    )
+
+
+@router.delete("/{user_id}/sessions", response_model=SessionsRevokedResponse)
+@rate_limit_strict("10/minute")
+@audit_unexpected_failure(
+    activity_type=ActivityType.UPDATE,
+    resource_type=ResourceType.USER,
+    endpoint="/admin/users/{user_id}/sessions",
+)
+async def revoke_user_sessions(
+    request: Request,
+    current_user: AdminUsersSessions,
+    session: SessionDep,
+    user_id: uuid.UUID,
+) -> SessionsRevokedResponse:
+    """Terminate every session of a user — remote logout on all their devices."""
+    return await revoke_user_sessions_admin_service(
+        request,
+        session,
         current_user=current_user,
         user_id=user_id,
     )
