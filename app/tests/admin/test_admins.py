@@ -36,6 +36,48 @@ async def test_list_admins_reports_superadmin_with_all_permissions(
     assert superadmin_row["is_root_superadmin"] is True
 
 
+@pytest.mark.asyncio
+async def test_list_admins_paginates_and_reports_total(superadmin_client: AsyncClient):
+    """``skip``/``limit`` slice the listing while ``total`` counts every admin."""
+    for i in range(3):
+        await register_and_verify(superadmin_client, f"pageadmin{i}@test.com")
+        await promote_to_admin(f"pageadmin{i}@test.com")
+
+    full = await superadmin_client.get("/admin/admins")
+    expected_total = full.json()["total"]
+    assert expected_total >= 4  # 3 admins + the seeded superadmin
+
+    first = await superadmin_client.get("/admin/admins", params={"skip": 0, "limit": 2})
+    assert first.status_code == 200
+    body = first.json()
+    assert body["skip"] == 0
+    assert body["limit"] == 2
+    assert len(body["data"]) == 2
+    assert body["total"] == expected_total
+
+    second = await superadmin_client.get(
+        "/admin/admins", params={"skip": 2, "limit": 2}
+    )
+    first_ids = {row["id"] for row in body["data"]}
+    second_ids = {row["id"] for row in second.json()["data"]}
+    assert first_ids.isdisjoint(second_ids)
+
+
+@pytest.mark.asyncio
+async def test_list_admins_role_filter(superadmin_client: AsyncClient):
+    """The optional role filter narrows the listing to a single tier."""
+    await register_and_verify(superadmin_client, "roleadmin@test.com")
+    await promote_to_admin("roleadmin@test.com")
+
+    response = await superadmin_client.get(
+        "/admin/admins", params={"role": SystemRole.SUPERADMIN.value}
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert rows
+    assert all(row["role"] == SystemRole.SUPERADMIN.value for row in rows)
+
+
 # --- Create admin -----------------------------------------------------------
 
 

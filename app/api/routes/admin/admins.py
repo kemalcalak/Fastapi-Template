@@ -1,6 +1,7 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Query, Request, status
 
 from app.api.decorators import audit_unexpected_failure
 from app.api.deps import CurrentSuperAdmin, SessionDep
@@ -15,7 +16,7 @@ from app.schemas.admin import (
     RootTransferRequest,
 )
 from app.schemas.msg import Message
-from app.schemas.user import Language
+from app.schemas.user import Language, SystemRole
 from app.schemas.user_activity import ActivityType, ResourceType
 from app.services.admin.admin_service import (
     confirm_root_transfer_service,
@@ -42,9 +43,12 @@ async def list_admins_endpoint(
     _request: Request,
     _admin: CurrentSuperAdmin,
     session: SessionDep,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    role: SystemRole | None = None,
 ) -> AdminListResponse:
-    """List every admin-tier account with its permissions (superadmin only)."""
-    return await list_admins_service(session=session)
+    """List admin-tier accounts with pagination and an optional role filter (superadmin only)."""
+    return await list_admins_service(session=session, skip=skip, limit=limit, role=role)
 
 
 @router.get("/permissions", response_model=PermissionCatalogResponse)

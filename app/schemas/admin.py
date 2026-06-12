@@ -194,13 +194,16 @@ class AdminListItem(BaseModel):
     is_active: bool
     is_root_superadmin: bool = False
     permissions: list[Permission] = Field(default_factory=list)
+    created_at: datetime
 
 
 class AdminListResponse(BaseModel):
-    """Listing of every admin-tier account."""
+    """Paginated listing of admin-tier accounts."""
 
     data: list[AdminListItem]
     total: int
+    skip: int
+    limit: int
 
 
 class AdminCreate(BaseModel):
