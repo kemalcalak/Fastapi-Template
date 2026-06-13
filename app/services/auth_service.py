@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
+from app.core.realtime import account_topic, publish_safe
 from app.core.security import (
     aget_password_hash,
     averify_password,
@@ -40,6 +41,7 @@ from app.repositories.user_session import (
     revoke_session,
     rotate_session_jti,
 )
+from app.schemas.account import AccountEvent, AccountEventType
 from app.schemas.msg import Message
 from app.schemas.token import AuthTokens, RefreshedTokens
 from app.schemas.user import (
@@ -736,10 +738,16 @@ async def change_password_service(
     await _revoke_token(refresh_token)
 
     # Kill every session of the account (this device and all others): a
-    # password rotation must evict anyone holding stolen credentials.
+    # password rotation must evict anyone holding stolen credentials. The live
+    # broadcast drops other devices' open tabs to login at once, mirroring the
+    # session-service revoke paths, instead of waiting for their next request.
     revoked = await revoke_all_sessions(session, user_id=current_user.id)
     if revoked:
         await flag_sessions_revoked([s.id for s in revoked])
+        await publish_safe(
+            account_topic(current_user.id),
+            AccountEvent(type=AccountEventType.SESSIONS_REVOKED),
+        )
 
     await log_activity(
         session=session,
