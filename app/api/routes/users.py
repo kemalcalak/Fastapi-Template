@@ -1,7 +1,16 @@
-from fastapi import APIRouter, Request, Response, WebSocket
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Query, Request, Response, WebSocket
 
 from app.api.decorators import audit_unexpected_failure
-from app.api.deps import CurrentActiveUser, CurrentUser, SessionDep, get_ws_user
+from app.api.deps import (
+    CurrentActiveUser,
+    CurrentSessionId,
+    CurrentUser,
+    SessionDep,
+    get_ws_user,
+)
 from app.core.config import settings
 from app.core.messages.success_message import SuccessMessages
 from app.core.rate_limit import rate_limit_strict
@@ -14,6 +23,12 @@ from app.schemas.user import (
     UserUpdateResponse,
 )
 from app.schemas.user_activity import ActivityType, ResourceType
+from app.schemas.user_session import SessionListResponse, SessionsRevokedResponse
+from app.services.session_service import (
+    list_my_sessions_service,
+    revoke_my_other_sessions_service,
+    revoke_my_session_service,
+)
 from app.services.user_service import (
     build_user_me_service,
     deactivate_own_account_service,
@@ -47,6 +62,62 @@ async def account_events_ws(websocket: WebSocket, session: SessionDep) -> None:
         await websocket.close(code=_WS_POLICY_VIOLATION)
         return
     await serve_account_socket(websocket, topic=account_topic(user.id))
+
+
+@router.get("/me/sessions", response_model=SessionListResponse)
+async def list_my_sessions(
+    session: SessionDep,
+    current_user: CurrentActiveUser,
+    current_session_id: CurrentSessionId,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> SessionListResponse:
+    """List the caller's active sessions, flagging the current device."""
+    return await list_my_sessions_service(
+        session,
+        user=current_user,
+        current_session_id=current_session_id,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.delete("/me/sessions", response_model=SessionsRevokedResponse)
+@rate_limit_strict("5/minute")
+@audit_unexpected_failure(
+    activity_type=ActivityType.UPDATE,
+    resource_type=ResourceType.AUTH,
+    endpoint="/users/me/sessions (revoke others)",
+)
+async def revoke_my_other_sessions(
+    request: Request,
+    session: SessionDep,
+    current_user: CurrentActiveUser,
+    current_session_id: CurrentSessionId,
+) -> SessionsRevokedResponse:
+    """Log the caller out of every device except the one making this request."""
+    return await revoke_my_other_sessions_service(
+        request, session, user=current_user, current_session_id=current_session_id
+    )
+
+
+@router.delete("/me/sessions/{session_id}", response_model=Message)
+@rate_limit_strict("10/minute")
+@audit_unexpected_failure(
+    activity_type=ActivityType.UPDATE,
+    resource_type=ResourceType.AUTH,
+    endpoint="/users/me/sessions/{id}",
+)
+async def revoke_my_session(
+    request: Request,
+    session: SessionDep,
+    current_user: CurrentActiveUser,
+    session_id: uuid.UUID,
+) -> Message:
+    """Revoke a single session of the caller (remote logout for one device)."""
+    return await revoke_my_session_service(
+        request, session, user=current_user, session_id=session_id
+    )
 
 
 @router.patch("/me", response_model=UserUpdateResponse)

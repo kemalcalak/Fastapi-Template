@@ -40,3 +40,7 @@ class CookieRefreshResponse(BaseModel):
 # Contents of JWT token
 class TokenPayload(BaseModel):
     sub: str | None = None
+    # Session binding (UserSession id) — present on tokens minted via login.
+    sid: str | None = None
+    # Unique token id; the refresh flow matches it against the session row.
+    jti: str | None = None

@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,19 +8,21 @@ from app.core.config import settings
 from app.core.email import send_email
 from app.core.messages.error_message import ErrorMessages
 from app.core.messages.success_message import SuccessMessages
+from app.core.realtime import account_topic, publish_safe
 from app.core.security import (
     aget_password_hash,
     averify_password,
     create_access_token,
     create_password_reset_token,
     create_refresh_token,
+    decode_token_payload,
     generate_new_account_token,
     get_password_hash,
     verify_new_account_token,
     verify_password_reset_token,
-    verify_refresh_token,
 )
 from app.models.user import User
+from app.models.user_session import UserSession
 from app.repositories.login_attempts import (
     clear_login_attempts,
     is_login_locked,
@@ -30,6 +33,15 @@ from app.repositories.token_blacklist import (
     is_token_blacklisted,
 )
 from app.repositories.user import get_user_by_email, get_user_by_id, update_user
+from app.repositories.user_session import (
+    create_session,
+    flag_sessions_revoked,
+    get_session_by_id,
+    revoke_all_sessions,
+    revoke_session,
+    rotate_session_jti,
+)
+from app.schemas.account import AccountEvent, AccountEventType
 from app.schemas.msg import Message
 from app.schemas.token import AuthTokens, RefreshedTokens
 from app.schemas.user import (
@@ -233,12 +245,50 @@ async def authenticate(
     return user
 
 
+def _refresh_claims(refresh_token: str) -> dict:
+    """Decode a just-minted refresh token's claims (jti + exp for the session row)."""
+    claims = decode_token_payload(refresh_token, expected_type="refresh")
+    if claims is None:  # pragma: no cover - we minted the token one line above
+        raise RuntimeError("freshly minted refresh token failed to decode")
+    return claims
+
+
+async def _open_session(
+    request: Request | None,
+    session: AsyncSession,
+    user: User,
+    session_id: uuid.UUID,
+    refresh_token: str,
+) -> None:
+    """Persist the UserSession row backing a freshly issued token pair.
+
+    Device metadata is truncated to the column sizes so a hostile header can
+    never fail the insert.
+    """
+    claims = _refresh_claims(refresh_token)
+    user_agent = request.headers.get("user-agent") if request else None
+    ip_address = request.client.host if request and request.client else None
+    await create_session(
+        session,
+        UserSession(
+            id=session_id,
+            user_id=user.id,
+            refresh_jti=claims["jti"],
+            user_agent=user_agent[:512] if user_agent else None,
+            ip_address=ip_address[:45] if ip_address else None,
+            expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
+        ),
+    )
+
+
 async def login_service(
     request: Request, session: AsyncSession, email: str, password: str
 ) -> AuthTokens:
     """
     Orchestrate the login process: authenticate user and generate JWT tokens.
-    Simplified token creation relying on security component defaults.
+
+    Every successful login opens a ``UserSession`` row whose id rides in both
+    tokens as the ``sid`` claim, enabling per-device session management.
     """
     user = await authenticate(
         request=request, session=session, email=email, password=password
@@ -253,9 +303,14 @@ async def login_service(
         request=request,
     )
 
+    session_id = uuid.uuid4()
+    access_token = create_access_token(user.id, session_id=session_id)
+    refresh_token = create_refresh_token(user.id, session_id=session_id)
+    await _open_session(request, session, user, session_id, refresh_token)
+
     return AuthTokens(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=access_token,
+        refresh_token=refresh_token,
         user=UserPublic.model_validate(user),
         message=SuccessMessages.LOGIN_SUCCESS,
     )
@@ -269,14 +324,19 @@ async def refresh_token_service(
 
     On success the presented refresh token is revoked and a fresh access +
     refresh pair is issued. Replaying the old (now-blacklisted) refresh token
-    is rejected by the blacklist guard below, so a leaked token is single-use.
+    is rejected by the blacklist guard below; should the blacklist ever lose
+    state (Redis flush), the session-jti match catches the replay instead and
+    revokes the whole session as compromised.
     """
-    user_id = verify_refresh_token(refresh_token)
-    if not user_id:
+    claims = decode_token_payload(refresh_token, expected_type="refresh")
+    # Tokens without a session binding (pre-session deploys) are rejected —
+    # the holder simply logs in again and gets a session-bound pair.
+    if not claims or not claims.get("sid"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ErrorMessages.INVALID_TOKEN,
         )
+    user_id = claims["sub"]
 
     # Convert user_id to UUID early to use it in logging
     try:
@@ -343,13 +403,60 @@ async def refresh_token_service(
             detail=ErrorMessages.ACCOUNT_SUSPENDED,
         )
 
-    # Rotate: revoke the presented refresh token and mint a fresh pair so the
-    # old token can never be reused (replay is caught by the guard above).
+    # Session guard: the binding row must still be live.
+    session_id = uuid.UUID(claims["sid"])
+    user_session = await get_session_by_id(session, session_id)
+    if (
+        user_session is None
+        or user_session.revoked_at is not None
+        or user_session.user_id != parsed_user_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ErrorMessages.INVALID_TOKEN,
+        )
+
+    # Replay guard: a rotated-away jti means this token was already spent.
+    # Someone is holding a stale copy — kill the whole session.
+    if user_session.refresh_jti != claims["jti"]:
+        await revoke_session(session, session_id=session_id)
+        await flag_sessions_revoked([session_id])
+        if request:
+            await log_activity(
+                session=session,
+                user_id=parsed_user_id,
+                activity_type=ActivityType.LOGIN,
+                resource_type=ResourceType.AUTH,
+                status=ActivityStatus.FAILURE,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                details={
+                    "reason": "refresh_token_replay",
+                    "session_id": str(session_id),
+                },
+                request=request,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ErrorMessages.INVALID_TOKEN,
+        )
+
+    # Rotate: revoke the presented refresh token and mint a fresh pair bound
+    # to the same session, then record the new jti/expiry on the row.
     await _revoke_token(refresh_token)
 
+    new_access_token = create_access_token(user_id, session_id=session_id)
+    new_refresh_token = create_refresh_token(user_id, session_id=session_id)
+    new_claims = _refresh_claims(new_refresh_token)
+    await rotate_session_jti(
+        session,
+        session_id=session_id,
+        refresh_jti=new_claims["jti"],
+        expires_at=datetime.fromtimestamp(new_claims["exp"], tz=UTC),
+    )
+
     return RefreshedTokens(
-        access_token=create_access_token(user_id),
-        refresh_token=create_refresh_token(user_id),
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
         message=SuccessMessages.LOGIN_SUCCESS,
     )
 
@@ -364,6 +471,18 @@ async def _revoke_token(token: str | None) -> None:
         await add_token_to_blacklist(token)
 
 
+async def _close_session(session: AsyncSession, sid: str | None) -> None:
+    """Revoke the session row for ``sid`` and flag it in Redis (best-effort)."""
+    if not sid:
+        return
+    try:
+        session_id = uuid.UUID(sid)
+    except ValueError:
+        return
+    await revoke_session(session, session_id=session_id)
+    await flag_sessions_revoked([session_id])
+
+
 async def logout_service(
     request: Request | None,
     session: AsyncSession,
@@ -374,18 +493,28 @@ async def logout_service(
     Invalidate the session by blacklisting both the refresh and access tokens.
 
     Revoking the access token too closes the window where a stolen access
-    token would otherwise stay valid until its own expiry after logout.
+    token would otherwise stay valid until its own expiry after logout. The
+    backing ``UserSession`` row is revoked as well so the device disappears
+    from the active-sessions list.
     """
     await _revoke_token(access_token)
+
+    # Resolve the session binding from whichever token is available.
+    claims = None
+    if refresh_token:
+        claims = decode_token_payload(refresh_token, expected_type="refresh")
+    if claims is None and access_token:
+        claims = decode_token_payload(access_token)
+    if claims:
+        await _close_session(session, claims.get("sid"))
 
     if refresh_token:
         await _revoke_token(refresh_token)
 
         # Log success if possible
-        user_id = verify_refresh_token(refresh_token)
-        if user_id and request:
+        if claims and request:
             try:
-                parsed_user_id = uuid.UUID(user_id)
+                parsed_user_id = uuid.UUID(claims["sub"])
                 await log_activity(
                     session=session,
                     user_id=parsed_user_id,
@@ -577,9 +706,10 @@ async def change_password_service(
     """
     Change user password after verifying current password.
 
-    On success the current session's access and refresh tokens are revoked so
-    a password change forces re-authentication and immediately invalidates any
-    token that may have been stolen before the change.
+    On success every session of the user is revoked — the current one (its
+    access and refresh tokens are blacklisted, forcing re-authentication) and
+    every other device, so a credential thief is logged out everywhere the
+    moment the owner rotates the password.
     """
     if not await averify_password(
         update_password.current_password, current_user.hashed_password
@@ -606,6 +736,18 @@ async def change_password_service(
     # token captured before the change stops working immediately.
     await _revoke_token(access_token)
     await _revoke_token(refresh_token)
+
+    # Kill every session of the account (this device and all others): a
+    # password rotation must evict anyone holding stolen credentials. The live
+    # broadcast drops other devices' open tabs to login at once, mirroring the
+    # session-service revoke paths, instead of waiting for their next request.
+    revoked = await revoke_all_sessions(session, user_id=current_user.id)
+    if revoked:
+        await flag_sessions_revoked([s.id for s in revoked])
+        await publish_safe(
+            account_topic(current_user.id),
+            AccountEvent(type=AccountEventType.SESSIONS_REVOKED),
+        )
 
     await log_activity(
         session=session,

@@ -10,11 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal
 from app.core.messages.error_message import ErrorMessages
-from app.core.security import verify_token
+from app.core.security import decode_token_payload
 from app.models.user import User
 from app.repositories.admin.permission import has_permission
 from app.repositories.token_blacklist import is_token_blacklisted
 from app.repositories.user import get_user_by_id
+from app.repositories.user_session import is_session_revoked
 from app.schemas.admin_permission import Permission
 from app.schemas.token import TokenPayload
 from app.schemas.user import SystemRole
@@ -57,15 +58,27 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        token_subject = verify_token(token)
-        if token_subject is None:
+        claims = decode_token_payload(token)
+        if claims is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ErrorMessages.INVALID_TOKEN,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        token_data = TokenPayload(sub=token_subject)
+        # Session guard: a token whose session was revoked (logout elsewhere,
+        # admin kill, password change) dies here even though its signature and
+        # expiry are still valid. Tokens without a sid (minted before the
+        # session feature) pass — they expire within minutes on their own.
+        sid = claims.get("sid")
+        if sid and await is_session_revoked(sid):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token_data = TokenPayload(sub=claims["sub"], sid=sid, jti=claims.get("jti"))
     except (ValidationError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -132,10 +145,13 @@ async def get_ws_user(websocket: WebSocket, db: AsyncSession) -> User | None:
     try:
         if await is_token_blacklisted(token):
             return None
-        token_subject = verify_token(token)
-        if token_subject is None:
+        claims = decode_token_payload(token)
+        if claims is None:
             return None
-        token_data = TokenPayload(sub=token_subject)
+        sid = claims.get("sid")
+        if sid and await is_session_revoked(sid):
+            return None
+        token_data = TokenPayload(sub=claims["sub"], sid=sid, jti=claims.get("jti"))
     except (ValidationError, ValueError):
         return None
 
@@ -143,6 +159,29 @@ async def get_ws_user(websocket: WebSocket, db: AsyncSession) -> User | None:
     if user is None or not user.is_active:
         return None
     return user
+
+
+async def get_current_session_id(
+    request: Request,
+    bearer_token: Annotated[str | None, Depends(reusable_oauth2)] = None,
+) -> uuid.UUID | None:
+    """Resolve the ``sid`` claim of the caller's access token.
+
+    Pure claim extraction — authentication itself is the job of
+    ``get_current_user``, which the route must also depend on. Returns ``None``
+    for legacy tokens minted before the session feature.
+    """
+    token = request.cookies.get("access_token") or bearer_token
+    if not token:
+        return None
+    claims = decode_token_payload(token)
+    sid = claims.get("sid") if claims else None
+    if not sid:
+        return None
+    try:
+        return uuid.UUID(sid)
+    except ValueError:
+        return None
 
 
 # Type aliases for dependency injection
@@ -153,6 +192,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
 CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]
 CurrentSuperAdmin = Annotated[User, Depends(get_current_superadmin)]
+CurrentSessionId = Annotated[uuid.UUID | None, Depends(get_current_session_id)]
 
 
 async def user_has_permission(

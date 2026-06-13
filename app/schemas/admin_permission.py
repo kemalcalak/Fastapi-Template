@@ -16,6 +16,7 @@ class Permission(StrEnum):
     USERS_DELETE = "users:delete"
     USERS_SUSPEND = "users:suspend"
     USERS_PASSWORD_RESET = "users:password_reset"
+    USERS_SESSIONS = "users:sessions"
     FILES_READ = "files:read"
     FILES_DELETE = "files:delete"
     SUPPORT_READ = "support:read"

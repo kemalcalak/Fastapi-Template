@@ -11,6 +11,7 @@ from arq.cron import cron
 
 from app.core.config import settings
 from app.worker.jobs.delete_expired_accounts import delete_expired_accounts
+from app.worker.jobs.purge_stale_sessions import purge_stale_sessions
 
 
 def _redis_settings() -> RedisSettings:
@@ -22,12 +23,18 @@ class WorkerSettings:
     """Entry point for ``arq app.worker.settings.WorkerSettings``."""
 
     redis_settings = _redis_settings()
-    functions: list = [delete_expired_accounts]
+    functions: list = [delete_expired_accounts, purge_stale_sessions]
     cron_jobs = [
         cron(
             delete_expired_accounts,
             hour={settings.DELETION_JOB_CRON_HOUR},
             minute={settings.DELETION_JOB_CRON_MINUTE},
+            run_at_startup=False,
+        ),
+        cron(
+            purge_stale_sessions,
+            hour={settings.SESSION_PURGE_CRON_HOUR},
+            minute={settings.SESSION_PURGE_CRON_MINUTE},
             run_at_startup=False,
         ),
     ]
