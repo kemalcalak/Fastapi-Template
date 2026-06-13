@@ -17,6 +17,8 @@ You are orchestrating a multi-agent code review pipeline for a pull request in t
 
 Execute the eight steps below in order. Each step that says "spawn an agent" must use the Agent tool. Agent prompts are written in English (more reliable for model instructions); the final user-facing comment is in **Turkish** (the project's working language).
 
+> **No nested agents.** Only the orchestrator (this top-level loop) spawns agents — exactly at Steps 1, 2, 3, 4, and 5. Every spawned agent is a **leaf**: it completes its task entirely within its own context and MUST NOT call the `Agent`/`Task` tool or spawn any sub-agent of its own. If work needs to be split, only the orchestrator splits it.
+
 ---
 
 ### Step 1 — Eligibility check (Sonnet)
@@ -82,7 +84,7 @@ Pass this object to the five parallel reviewers in Step 4.
 
 ### Step 4 — Five parallel Sonnet reviewers
 
-> **Read-only mandate for every spawned agent (Steps 1–5).** Each agent's ONLY output is the JSON described in its prompt. An agent MUST NOT post, edit, or delete anything on the PR: never run `gh pr comment`, `gh issue comment`, `gh pr review`, or any `gh api` call with `-X POST`/`-X PATCH`/`-X PUT`/`-X DELETE`. Only the orchestrator posts, and only once, in Step 8. Any agent that writes to the PR is a pipeline violation and causes duplicate comments.
+> **Read-only mandate for every spawned agent (Steps 1–5).** Each agent's ONLY output is the JSON described in its prompt. An agent MUST NOT post, edit, or delete anything on the PR: never run `gh pr comment`, `gh issue comment`, `gh pr review`, or any `gh api` call with `-X POST`/`-X PATCH`/`-X PUT`/`-X DELETE`. Only the orchestrator posts, and only once, in Step 8. Any agent that writes to the PR is a pipeline violation and causes duplicate comments. **Each agent is also a leaf node: it does its own work in its own context and MUST NOT call the `Agent`/`Task` tool or spawn any sub-agent.** A spawned agent that spawns further agents is a pipeline violation.
 
 Spawn the following five agents **in parallel** in a single message, all with `subagent_type: "general-purpose"` and `model: "sonnet"`. Each must return strict JSON of the shape:
 
@@ -363,6 +365,7 @@ Use `--body-file` (not `--body`) to preserve markdown formatting and avoid shell
 
 - **Never edit files.** This command only reviews.
 - **Only the orchestrator posts, and only in Step 8.** Spawned agents (Steps 1–5) are read-only: they return JSON and never call `gh pr comment`, `gh issue comment`, `gh pr review`, or a writing `gh api` (`-X POST/PATCH/PUT/DELETE`). If a sub-agent reports it already posted a comment, do not post again — verify the PR state and reconcile to exactly one correct comment.
+- **No nested agents.** Spawned agents are leaf nodes — they complete their task in their own context and never call the `Agent`/`Task` tool or spawn sub-agents. Only the orchestrator spawns, exactly at Steps 1, 2, 3, 4, and 5.
 - **Never post more than one comment per run.** All findings are batched into a single comment.
 - **Never post without `REVIEW.md`** — abort instead. The whole pipeline relies on it for false-positive control.
 - **Always use the full head SHA** in permalinks, captured at Step 1, even if the PR receives new commits during the run. The review applies to the SHA you actually read.
