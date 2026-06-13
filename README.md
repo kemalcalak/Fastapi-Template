@@ -36,13 +36,14 @@ This template integrates the best-in-class Python ecosystem tools to provide a s
 - **Security & Auth:** JWT access/refresh tokens accepted via either HttpOnly cookies *or* `Authorization: Bearer`, `bcrypt` password hashing, **Redis-backed token blacklist** (logout invalidation), strict origin-check middleware (returns 404 for foreign origins), and [Slowapi](https://slowapi.readthedocs.io/en/latest/) rate limiting for brute-force protection.
 - **Account Lifecycle:** Email verification, password reset, password change, and **soft-delete with grace period** — accounts marked for deletion can be reactivated until the cron worker purges them.
 - **File Uploads & Avatars:** [Cloudinary](https://cloudinary.com/)-backed image uploads via `POST /upload` (image-only, 5 MB cap, rate-limited + audited). A generic `File` model lets any feature attach uploads; user avatars enforce **ownership (IDOR) guards** — you may only attach a file you uploaded — and auto-delete the replaced avatar's asset. Admins get full file management (list/filter by uploader, hard-delete with avatar references auto-cleared). See [File Uploads & Avatars](#-file-uploads--avatars) below.
-- **Background Jobs:** [arq](https://arq-docs.helpmanual.io/) worker (separate container in compose) runs cron jobs such as `delete_expired_accounts` at the configured time.
+- **Background Jobs:** [arq](https://arq-docs.helpmanual.io/) worker (separate container in compose) runs cron jobs such as `delete_expired_accounts` and `purge_stale_sessions` at the configured time.
 - **Audit Trail:** `user_activity` table records auth events and CRUD actions with IP / user agent, plus the **HTTP status code** of each event (`200` on success, the raised error code on failure) — filterable in the admin panel. The `audit_unexpected_failure` decorator captures unexpected route failures.
 - **Smart Email Validation & Delivery:** Built-in asynchronous email sending with SMTP, domain MX record checking using `dnspython`, and auto-updating disposable email provider filtering via Redis cache.
 - **Standardized API Responses:** Global exception handlers standardizing success/error schemas, utilizing a centralized `messages` module (`app/core/messages/`) to prevent hardcoded responses.
 - **Role-Based Access Control (RBAC):** Three roles — `user` / `admin` / `superadmin`. Superadmins bypass every check and **create/delete admins** and assign their permissions; plain admins are gated per **`resource:action`** permission (`users:read`, `users:write`, `support:update`, …) stored in `admin_permission` and enforced by a single `require_permission(...)` dependency. The **superadmin tier** (promote an admin to superadmin, demote a superadmin, transfer root via email OTP) is reserved for the **root superadmin** (`is_root_superadmin`); the last active superadmin is always protected. See [Admin & RBAC](#-admin--rbac-roles--permissions).
 - **Support / Ticketing System:** Full ticket lifecycle — open, reply with image attachments, status/priority, admin assignment — fanned out over a **Redis-backed WebSocket bus** so the ticket thread, the admin queue, and per-user feeds update live across workers. See [Support System & Realtime](#-support-ticketing-system--realtime).
 - **Notification System:** Persistent in-app notifications (`notification` table) layered on the same realtime bus — domain events (a support reply, a ticket status change, an RBAC grant change) call a single `notify()` use case that stores the row **and** pushes it to the recipient's `notifications:{id}` feed, so offline users still find it in their inbox on the next fetch. Notification copy is stored as a stable machine `type` + `data` payload (no human text), so the frontend renders it in any locale. REST covers paginated listing (`unread_only` filter), the unread badge count, and mark-(all-)read. See [Notification System](#-notification-system).
+- **Session / Device Management:** Every login opens a `user_session` row whose id rides in both tokens as the JWT `sid` claim, so a user can list their active devices and revoke any one (or all but the current). Refresh **rotates** the session's `jti` and detects **replay** — a stale refresh token revokes the whole session as compromised; logout and password change revoke sessions too. Revocation kills a session's still-valid access tokens instantly via a Redis `sid` flag, and broadcasts `sessions_revoked` so open tabs drop to login live. Admins can list/terminate a user's sessions, gated by the `users:sessions` permission. A nightly arq job purges stale rows. See [Session Management](#-session--device-management).
 - **First Superadmin Seed:** On startup a **root superadmin** (`is_root_superadmin`) is created from `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` if none exists (a matching existing account is promoted instead; older deployments get their oldest superadmin flagged as root) — guaranteeing a root account.
 - **Tooling:** [uv](https://docs.astral.sh/uv/) for blazing-fast package management, and [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
 - **Testing:** Comprehensive async testing setup with `pytest` and `pytest-asyncio`, in-memory SQLite via `aiosqlite`, `fakeredis`, and autouse SMTP/MX patches — tests never hit Postgres or the network.
@@ -380,7 +381,7 @@ A complete support desk built on a generic realtime bus that any feature can reu
 | `WS /admin/support/ws` · `/support/ws` | admin / owner | Multiplexed ticket + queue feed. |
 | `WS /users/me/events` | any user | Per-user account feed (e.g. live `permissions_updated`). |
 
-**Realtime bus (`app/core/realtime.py`).** A thin in-process `ConnectionManager` sits behind a Redis pub/sub bridge: services `publish()` to a topic — `ticket:{id}`, `admin`, `user:{id}`, `account:{id}`, or `notifications:{id}` — and a per-worker listener fans the event to the matching local sockets, so an event raised in one worker reaches clients connected to any worker. Publishing is best-effort (`publish_safe`), so a realtime hiccup never breaks the originating request.
+**Realtime bus (`app/core/realtime.py`).** A thin in-process `ConnectionManager` sits behind a Redis pub/sub bridge: services `publish()` to a topic — `ticket:{id}`, `admin`, `user:{id}`, `account:{id}`, or `notifications:{id}` — and a per-worker listener fans the event to the matching local sockets, so an event raised in one worker reaches clients connected to any worker. The `account:{id}` topic carries both `permissions_updated` (RBAC grant change) and `sessions_revoked` (a device was logged out). Publishing is best-effort (`publish_safe`), so a realtime hiccup never breaks the originating request.
 
 ---
 
@@ -402,6 +403,26 @@ Persistent, per-user in-app notifications built on the same realtime bus as supp
 
 ---
 
+## 🔒 Session / Device Management
+
+Per-device login sessions backed by the `user_session` table, so a user can see where they're signed in and revoke access remotely. Each login mints an access + refresh pair carrying the session id as the JWT `sid` claim; the row records the device user-agent (parsed into browser/OS at the schema layer — the raw IP stays server-side and is never returned).
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /users/me/sessions` | self | List own active sessions (paginated), current device flagged. |
+| `DELETE /users/me/sessions/{id}` | owner | Revoke one of own sessions (foreign / unknown id → uniform 404). |
+| `DELETE /users/me/sessions` | self | Revoke every session **except** the current device. |
+| `GET /admin/users/{id}/sessions` | `users:sessions` | List a user's active sessions (admin view). |
+| `DELETE /admin/users/{id}/sessions` | `users:sessions` | Terminate all of a user's sessions (remote logout). |
+
+**Rotation & replay (`app/services/auth_service.py`).** Refresh validates the `sid`, rotates the session's stored `refresh_jti`, and pushes the expiry forward. A presented refresh token whose `jti` no longer matches the row is a **replay** — the whole session is revoked as compromised and audited, so a leaked token is single-use even if the Redis blacklist ever loses state. Legacy tokens minted before the feature (no `sid`) are rejected on refresh; the holder simply logs in again.
+
+**Instant revocation.** Revoking a session blacklists its tokens **and** writes a `revoked:session:{sid}` Redis flag (TTL = access-token lifetime), which `get_current_user` checks on every request — so a still-valid access token dies the moment its session is killed, without a per-request DB hit. The same paths broadcast `sessions_revoked` on the `account:{id}` topic so a kicked device's open tab drops to login live. Logout, password change (revokes **all** of the user's sessions), and admin termination all flow through here.
+
+**Housekeeping.** A nightly arq cron (`app/worker/jobs/purge_stale_sessions.py`) deletes expired rows immediately and revoked rows after a retention window (`SESSION_REVOKED_RETENTION_DAYS`, default 30) in one set-based `DELETE`.
+
+---
+
 ## 📂 Project Structure
 
 ```bash
@@ -413,7 +434,7 @@ Persistent, per-user in-app notifications built on the same realtime bus as supp
 │   │       └── admin/    # Admin surface — RBAC-gated via require_permission;
 │   │                     #   admins/ (admin management) is superadmin-only
 │   ├── core/             # config, db, security, redis, rate_limit, email, storage, realtime, bootstrap, messages/
-│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserActivity, File, SupportTicket, Notification, AdminPermission, …)
+│   ├── models/           # Domain Layer: SQLAlchemy ORM (User, UserSession, UserActivity, File, SupportTicket, Notification, AdminPermission, …)
 │   ├── repositories/     # Data Layer: async DB queries (no business rules)
 │   ├── schemas/          # Pydantic v2 DTOs (Create / Update / Response per domain)
 │   ├── services/         # Business Logic Layer: pure async functions, take AsyncSession
